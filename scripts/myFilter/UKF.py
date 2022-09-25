@@ -9,10 +9,17 @@ from . import unscented_transform
 
 # from copy import deepcopy
 import numpy as np
-import scipy.linalg
-from numba import jit
+# import scipy.linalg
+# from numba import jit
+# from numba import jitclass          # import the decorator
+# from numba import int32, float32    # import the types
 
+# spec = [
+#     ('value', int32),               # a simple scalar field
+#     ('array', float32[:]),          # an array field
+# ]
 
+# @jitclass(spec)
 class UKFBase():
     r"""
     Base class for UKF implementations
@@ -254,7 +261,7 @@ class UKFBase():
         #       f"sigma_cross_mat: {sigma_cross_mat}")
         cross_corr = np.divide(Pxy, sigma_cross_mat) #element wise division
         return cross_corr
-    
+
 class UKF_additive_noise(UKFBase):
     
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
@@ -447,9 +454,6 @@ class UKF_additive_noise(UKFBase):
         self.P_post = self.P_prior - self.K @ Py_pred @ self.K.T
 
 
-        
-        
-    
 class Normalized_UKF_additive_noise(UKFBase):
     
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
@@ -542,18 +546,11 @@ class Normalized_UKF_additive_noise(UKFBase):
 
         if UT is None:
             UT = unscented_transform.unscented_transformation_gut
-            
+        
+        #calculate the square-root of the covariance matrix by using standard deviations and correlation matrix
         corr_sqrt = self.msqrt(self.corr_post)
         P_sqrt = self.std_dev_post @ corr_sqrt
-        # print(f"P_sqrt: {P_sqrt}\n",
-        #       f"P_sqrt_calc: {self.msqrt(self.std_dev_post @ self.corr_post @ self.std_dev_post.T)}"
-        #       )
         
-        # #Check code is correct: this is ONLY true for Cholesky decomposition - to be removed after debugging
-        # P_calc = self.covariance_from_corr_std_dev(self.corr_post, self.std_dev_post)
-        # assert (P_sqrt == self.msqrt(P_calc)).all() #T
-        ####
-
         # calculate sigma points for given mean and covariance for the states
         (self.sigmas_raw_fx, self.Wm_x, 
          self.Wc_x, P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_post, 
@@ -565,6 +562,7 @@ class Normalized_UKF_additive_noise(UKFBase):
 
        
 
+        #TO DO: implement "smart" way of obtaining std_dev_prior, corr_prior directly from the UT. Everything below should be updated.
         # pass the propagated sigmas of the states through the unscented transform to compute prior
         self.x_prior, P_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x)
         
@@ -572,7 +570,6 @@ class Normalized_UKF_additive_noise(UKFBase):
         self.x_prior += w_mean
         P_prior += Q
         
-        #TO DO: implement "smart" way of obtaining std_dev_prior, corr_prior directly from the UT
         self.corr_prior, std_dev_prior = self.correlation_from_covariance(P_prior)
         self.std_dev_prior = np.diag(std_dev_prior)
         
@@ -652,7 +649,8 @@ class Normalized_UKF_additive_noise(UKFBase):
         self.sigmas_meas = self.compute_transformed_sigmas(
             self.sigmas_raw_hx, hx, **hx_args)
 
-        # compute mean and covariance of the predicted measurement - should be done in a smarter way!
+        #TO DO: implement "smart" way of obtaining std_dev_y, corr_y directly from the UT. 
+        # compute mean and covariance of the predicted measurement
         y_pred, Py_pred = UT(self.sigmas_meas, self.Wm, self.Wc)
         
         # add measurement noise
@@ -662,12 +660,15 @@ class Normalized_UKF_additive_noise(UKFBase):
         # self.Py_pred = Py_pred.copy()
         self.corr_y, std_dev_y = self.correlation_from_covariance(Py_pred)
         self.std_dev_y = np.diag(std_dev_y)
-        self.std_dev_y_inv = np.diag([1/sig_y for sig_y in std_dev_y])#inverse of diagonal matrix is inverse of each diagonal element
+        
+        
 
         # Innovation term of the UKF
         self.y_res = y - y_pred
+        self.std_dev_y_inv = np.diag([1/sig_y for sig_y in std_dev_y])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
         
-        #Kalman gain. Start with cross_covariance
+        #TO DO: implement "smart" way of obtaining corr_xy directly 
+        #Obtain the cross_covariance
         Pxy = self.cross_covariance(
             self.x_prior, y_pred, self.sigmas_raw_hx, self.sigmas_meas, self.Wc)
         # self.Pxy = Pxy
@@ -682,6 +683,7 @@ class Normalized_UKF_additive_noise(UKFBase):
         # calculate posterior
         self.x_post = self.x_prior + self.std_dev_prior @ self.K @ self.std_dev_y_inv @ self.y_res
         
+        #TO DO: implement "smart" way of obtaining std_dev_post and corr_post directly 
         P_post = self.std_dev_prior @ (
             self.corr_prior - self.K @ self.corr_xy.T) @ self.std_dev_prior
         

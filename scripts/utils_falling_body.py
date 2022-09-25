@@ -96,33 +96,34 @@ def get_literature_values():
     # Q = np.eye(3)*1e-6
     Q = np.diag([1e-4, 1e-3, 0])
     Q = np.diag([1e3, 1e3, 1e-6])
+    Q = np.diag([1e2, 1e2, 1e-7])
     # Q = np.eye(3)*0.
     
     #Measurement noise
     R = np.array([10e3])#[ft^2]
     
-    #convert to SI units
-    kg_per_lbs = 0.45359237
-    m_per_ft = 0.3048
+    # #convert to SI units
+    # kg_per_lbs = 0.45359237
+    # m_per_ft = 0.3048
     
-    x0[0] *= m_per_ft
-    x0[1] *= m_per_ft
-    x0[2] *= (m_per_ft**3)/kg_per_lbs
+    # x0[0] *= m_per_ft
+    # x0[1] *= m_per_ft
+    # x0[2] *= (m_per_ft**3)/kg_per_lbs
     
-    P0[0, 0] *= (m_per_ft)**2
-    P0[1, 1] *= (m_per_ft)**2
-    P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
+    # P0[0, 0] *= (m_per_ft)**2
+    # P0[1, 1] *= (m_per_ft)**2
+    # P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
     
-    par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
-    par_mean_fx["k"] *= m_per_ft
-    par_mean_fx["g"] *= m_per_ft
-    par_mean_hx["M"] *= m_per_ft
-    par_mean_hx["a"] *= m_per_ft
+    # par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
+    # par_mean_fx["k"] *= m_per_ft
+    # par_mean_fx["g"] *= m_per_ft
+    # par_mean_hx["M"] *= m_per_ft
+    # par_mean_hx["a"] *= m_per_ft
     
-    R *= m_per_ft**2
-    Q[0,0] *= m_per_ft**2 
-    Q[1,1] *= m_per_ft**2 
-    Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
+    # R *= m_per_ft**2
+    # Q[0,0] *= m_per_ft**2 
+    # Q[1,1] *= m_per_ft**2 
+    # Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
     
     return x0, P0, par_mean_fx, par_mean_hx, Q, R
 

@@ -39,16 +39,18 @@ j_valappil = np.zeros((dim_x, N))
 j_valappil_norm = np.zeros((dim_x, N))
 Ni = 0
 rand_seed = 1234
+
+run_ukf = False
+run_ukf_norm = True
+calc_RMSE = True
 while Ni < N:
     try:
         np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
         #%% Import the distributions of the parameters for the fx equations (states)
         #Modes of the dists are used for the true system, and mean of the dists are the parameters for the UKF
         
-        # utils_fb.uncertainty_venturi2()
         x0, P0, par_true_fx, par_true_hx, Q_nom, R_nom = utils_fb.get_literature_values()
         par_kf_fx = par_true_fx.copy()
-        par_true_hx["y_rep"] = R_nom
         par_kf_hx = par_true_hx.copy()
         
        
@@ -81,6 +83,10 @@ while Ni < N:
         x_post_norm = np.zeros((dim_x, dim_t))
         P_post = np.zeros((dim_x, dim_t))
         P_post_norm = np.zeros((dim_x, dim_t))
+        
+        #condition numbers
+        kappa = np.zeros(dim_t)
+        kappa_norm = np.zeros(dim_t)
         
         x_true[:, 0] = x0
         x_ol[:, 0] = x0_kf.copy()
@@ -147,6 +153,9 @@ while Ni < N:
         w_noise_kf = np.zeros(dim_x)
         v_noise = np.random.multivariate_normal(kf.v_mean, kf.R, size = dim_t)
         
+        kappa[0] = np.linalg.cond(kf.P_post)
+        kappa_norm[0] = np.linalg.cond(kf_norm.corr_post)
+        
         #%% Simulate the plant and UKF
         for i in range(1,dim_t):
             t_span = (t[i-1], t[i])
@@ -163,30 +172,36 @@ while Ni < N:
             #Make a new measurement and add measurement noise
             y[:, i] = utils_fb.hx(x_true[:, i], par_true_hx) + v_noise[i, :] 
             
-            # Solve the open loop model prediction, based on the same info as UKF has (no measurement)
-            res_ol = scipy.integrate.solve_ivp(utils_fb.ode_model_plant, 
-                                               t_span,#(t_y[i-1],t_y[i]), 
-                                               x_ol[:, i-1], 
-                                               # rtol = 1e-10,
-                                               # atol = 1e-13
-                                               args = (w_noise_kf, par_kf_fx)
-                                               )
-            
-            x_ol[:, i] = res_ol.y[:, -1] #add the interval to the full list
+            if not calc_RMSE:
+                # Solve the open loop model prediction, based on the same info as UKF has (no measurement)
+                res_ol = scipy.integrate.solve_ivp(utils_fb.ode_model_plant, 
+                                                   t_span,#(t_y[i-1],t_y[i]), 
+                                                   x_ol[:, i-1], 
+                                                   # rtol = 1e-10,
+                                                   # atol = 1e-13
+                                                   args = (w_noise_kf, par_kf_fx)
+                                                   )
+                
+                x_ol[:, i] = res_ol.y[:, -1] #add the interval to the full list
           
-            # #Prediction step of each UKF
-            kf.predict()
-            kf_norm.predict()
+            #Prediction and correction step of UKF. Calculate condition numbers
+            if run_ukf:
+                kf.predict()
+                kf.update(y[:, i])
+                kappa[i] = np.linalg.cond(kf.P_post)
            
-            #Correction step of UKF
-            kf.update(y[:, i])
-            kf_norm.update(y[:, i])
+            #Prediction and correction step of normalized UKF. Calculate condition numbers
+            if run_ukf_norm:
+                kf_norm.predict()
+                kf_norm.update(y[:, i])
+                kappa_norm[i] = np.linalg.cond(kf_norm.corr_post)
 
             # Save the estimates
             x_post[:, i] = kf.x_post
             x_post_norm[:, i] = kf_norm.x_post
             P_post[:, i] = np.diag(kf.P_post)
             P_post_norm[:, i] = np.diag(np.square(kf_norm.std_dev_post))
+            
         
         y[:, 0] = np.nan #the 1st measurement is not real, just for programming convenience
         
@@ -195,15 +210,17 @@ while Ni < N:
         #%% Compute performance index
         j_valappil[:, Ni] = utils_fb.compute_performance_index_valappil(x_post, 
                                                                       x_ol, 
-                                                                      x_true)
+                                                                      x_true,
+                                                                      RMSE = calc_RMSE)
         j_valappil_norm[:, Ni] = utils_fb.compute_performance_index_valappil(x_post_norm, 
                                                                           x_ol, 
-                                                                          x_true)
+                                                                          x_true,
+                                                                          RMSE = calc_RMSE)
     
         
         Ni += 1
         rand_seed += 1
-        if (Ni%5 == 0): #print every 5th iteration                                                               
+        if (Ni%1 == 0): #print every 5th iteration                                                               
             print(f"End of iteration {Ni}/{N}")
     except BaseException as e:
         # print(e)
@@ -221,35 +238,40 @@ if plot_it:
     for i in range(dim_x): #plot true states and ukf's estimates
         ax1[i].plot(t, x_true[i, :], label = "True")
         # ax1[i].plot([np.nan, np.nan], [np.nan, np.nan], color='w', alpha=0, label=' ')
-        l_post = ax1[i].plot(t, x_post[i, :], label = r"$UKF$")[0]
-        l_post_norm = ax1[i].plot(t, x_post_norm[i, :], label = r"$UKF_{norm}$")[0]
-        ax1[i].plot(t, x_ol[i, :], label = "OL")
+        if run_ukf:
+            l_post = ax1[i].plot(t, x_post[i, :], label = r"$UKF$")[0]
+        if run_ukf_norm:
+            l_post_norm = ax1[i].plot(t, x_post_norm[i, :], label = r"$UKF_{norm}$")[0]
+        if not calc_RMSE:
+            ax1[i].plot(t, x_ol[i, :], label = "OL")
         
         
         if True:
             #Standard UKF
-            ax1[i].fill_between(t, 
-                                x_post[i, :] + 2*np.sqrt(P_post[i,:]),
-                                x_post[i, :] - 2*np.sqrt(P_post[i,:]),
-                                **kwargs_fill,
-                                color = l_post.get_color())
-            ax1[i].fill_between(t, 
-                                x_post[i, :] + 1*np.sqrt(P_post[i,:]),
-                                x_post[i, :] - 1*np.sqrt(P_post[i,:]),
-                                **kwargs_fill,
-                                color = l_post.get_color())
+            if run_ukf:
+                ax1[i].fill_between(t, 
+                                    x_post[i, :] + 2*np.sqrt(P_post[i,:]),
+                                    x_post[i, :] - 2*np.sqrt(P_post[i,:]),
+                                    **kwargs_fill,
+                                    color = l_post.get_color())
+                ax1[i].fill_between(t, 
+                                    x_post[i, :] + 1*np.sqrt(P_post[i,:]),
+                                    x_post[i, :] - 1*np.sqrt(P_post[i,:]),
+                                    **kwargs_fill,
+                                    color = l_post.get_color())
             
             #Normalized UKF
-            ax1[i].fill_between(t, 
-                                x_post_norm[i, :] + 2*np.sqrt(P_post_norm[i,:]),
-                                x_post_norm[i, :] - 2*np.sqrt(P_post_norm[i,:]),
-                                **kwargs_fill,
-                                color = l_post_norm.get_color())
-            ax1[i].fill_between(t, 
-                                x_post_norm[i, :] + 1*np.sqrt(P_post_norm[i,:]),
-                                x_post_norm[i, :] - 1*np.sqrt(P_post_norm[i,:]),
-                                **kwargs_fill,
-                                color = l_post_norm.get_color())
+            if run_ukf_norm:
+                ax1[i].fill_between(t, 
+                                    x_post_norm[i, :] + 2*np.sqrt(P_post_norm[i,:]),
+                                    x_post_norm[i, :] - 2*np.sqrt(P_post_norm[i,:]),
+                                    **kwargs_fill,
+                                    color = l_post_norm.get_color())
+                ax1[i].fill_between(t, 
+                                    x_post_norm[i, :] + 1*np.sqrt(P_post_norm[i,:]),
+                                    x_post_norm[i, :] - 1*np.sqrt(P_post_norm[i,:]),
+                                    **kwargs_fill,
+                                    color = l_post_norm.get_color())
             
             
         
@@ -261,6 +283,16 @@ if plot_it:
     # ax1[0].legend()        
     ax1[0].legend(ncol = 3,
                   frameon = False)      
+    plt.tight_layout()
+    
+    fig_kappa, ax_kappa = plt.subplots(1, 1)
+    ax_kappa.plot(t, kappa, label = r"$P_k^+ - UKF$")
+    ax_kappa.plot(t, kappa_norm, label = r"$\rho_k^+ - UKF_{norm}$")
+    ax_kappa.set_yscale("log")
+    ax_kappa.set_ylabel(r"$\kappa$ [-]")
+    ax_kappa.set_xlabel(r"Time [s]")
+    
+    ax_kappa.legend()
     plt.tight_layout()
 
 # print("Median value of cost function is\n")
