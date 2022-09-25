@@ -74,8 +74,8 @@ dim_y = y_mean.shape[0]
 
 #%%Square-root method
 sqrt_fn = np.linalg.cholesky
-# sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True) #NB: ONLY UPPER Cholesky works!
-# sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = False) #WONT WORK 
+sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True) #NB: ONLY LOWER Cholesky works!
+sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = False) #WONT WORK 
 # sqrt_fn = scipy.linalg.sqrtm
 #%% UT - spc
 Q = np.zeros((dim_x, dim_x))
@@ -83,9 +83,9 @@ R = np.zeros((dim_y, dim_y))
 points_x = spc.JulierSigmaPoints(dim_x,
                                  kappa = 3-dim_x, 
                                  sqrt_method = sqrt_fn)
-ukf = UKF.UnscentedKalmanFilter(fx, hx, points_x, Q, R)
-ukf.x_post = x0
-ukf.P_post = P0
+ukf = UKF.UKF_additive_noise(x0, P0, fx, hx, points_x, Q, R)
+# ukf.x_post = x0
+# ukf.P_post = P0
 ukf.predict()
 ut_x_prior = ukf.x_prior
 ut_P_prior = ukf.P_prior

@@ -113,40 +113,33 @@ while Ni < N:
         hx_ukf = lambda x_in: utils_fb.hx(x_in, par_kf_hx)#.reshape(-1,1)
         
         #kf is where Q adapts based on UT of parametric uncertainty
-        kf = UKF.UnscentedKalmanFilter(fx = fx_ukf, hx = hx_ukf,
-                                       points_x = points,
-                                       Q = Q_nom, R = R_nom,
-                                       sqrt_fn = sqrt_fn)
-        kf.x_post = x_post[:, 0]
-        kf.P_post = copy.deepcopy(P0)
-        # kf.Q = Q_nom #to be updated in a loop
-        # kf.R = R_nom #to be updated in a loop
+        kf = UKF.UKF_additive_noise(x0 = x_post[:, 0], P0 = P0.copy(), 
+                                    fx = fx_ukf, hx = hx_ukf, 
+                                    points_x = points, Q = Q_nom, 
+                                    R = R_nom)
         
         #%% Define UKF with adaptive Q, R from LHS/MC
-        # points_norm = spc.JulierSigmaPoints(dim_x,
-        #                                   kappa = 3-dim_x,
-        #                                   sqrt_method = sqrt_fn)
-        # # points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
+        points_norm = spc.JulierSigmaPoints(dim_x,
+                                          kappa = 3-dim_x,
+                                          sqrt_method = sqrt_fn)
+        # points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         # fx_ukf_norm = lambda x, dt_kf: utils_fb.fx_ukf_ode(utils_fb.ode_model_plant, 
-        #                                              t_span, 
-        #                                              x,
-        #                                              args_ode = (w_noise_kf,
-        #                                                          par_kf_fx.copy()),
-        #                                              args_solver = args_ode_solver)
+        #                                               t_span, 
+        #                                               x,
+        #                                               args_ode = (w_noise_kf,
+        #                                                           par_kf_fx.copy()),
+        #                                               args_solver = args_ode_solver)
         
         # hx_ukf_norm = lambda x_in: utils_fb.hx(x_in, par_kf_hx.copy())#.reshape(-1,1)
         
-        # #kf is where Q adapts based on UT of parametric uncertainty
-        # kf_norm = UKF.UnscentedKalmanFilter(fx = fx_ukf, hx = hx_ukf,
-        #                                points_x = points_norm,
-        #                                Q = Q_nom, R = R_nom,
-        #                                sqrt_fn = sqrt_fn)
-        # kf_norm.x_post = x_post_norm[:, 0]
-        # kf_norm.P_post = copy.deepcopy(P0)
-        # # kf_norm.Q = Q_nom #to be updated in a loop
-        # # kf_norm.R = R_nom #to be updated in a loop
+        #kf is where Q adapts based on UT of parametric uncertainty
+        kf_norm = UKF.Normalized_UKF_additive_noise(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
+                                        points_x = points_norm,
+                                        Q = Q_nom, R = R_nom)
+        # #test predict function       
+        # kf_norm.predict()
+        # kf_norm.predict()
         
-       
         #%% Create noise
         # w_plant = np.zeros((dim_t, dim_x))
         w_mean = np.zeros(dim_x)
@@ -183,17 +176,17 @@ while Ni < N:
           
             # #Prediction step of each UKF
             kf.predict()
-            # kf_norm.predict()
+            kf_norm.predict()
            
             #Correction step of UKF
             kf.update(y[:, i])
-            # kf_norm.update(y[:, i])
+            kf_norm.update(y[:, i])
 
-            # # Save the estimates
+            # Save the estimates
             x_post[:, i] = kf.x_post
-            # x_post_norm[:, i] = kf_norm.x_post
+            x_post_norm[:, i] = kf_norm.x_post
             P_post[:, i] = np.diag(kf.P_post)
-            # P_post_norm[:, i] = np.diag(kf_norm.P_post)
+            P_post_norm[:, i] = np.diag(np.square(kf_norm.std_dev_post))
         
         y[:, 0] = np.nan #the 1st measurement is not real, just for programming convenience
         

@@ -111,7 +111,7 @@ def get_literature_values():
     
     P0[0, 0] *= (m_per_ft)**2
     P0[1, 1] *= (m_per_ft)**2
-    P0[2, 1] *= ((m_per_ft**3)/kg_per_lbs)**2
+    P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
     
     par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
     par_mean_fx["k"] *= m_per_ft

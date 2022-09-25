@@ -112,7 +112,7 @@ class JulierSigmaPoints(SigmaPoints):
         self.Wc = self.Wm.copy()
         
     # def compute_weights(self)
-    def compute_sigma_points(self, mu, P):
+    def compute_sigma_points(self, mu, P, P_sqrt = None):
         """
         Computes the sigma points based on Julier's paper
 
@@ -122,6 +122,8 @@ class JulierSigmaPoints(SigmaPoints):
             DESCRIPTION. Mean value of X 
         P : TYPE np.array(n,n)
             DESCRIPTION. Covariance matrix of X
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
 
         Raises
         ------
@@ -153,7 +155,8 @@ class JulierSigmaPoints(SigmaPoints):
         
         try:
             sqrt_factor = np.sqrt(n+self.kappa)
-            P_sqrt = self.sqrt(P)
+            if P_sqrt is None:
+                P_sqrt = self.sqrt(P)
             P_sqrt_weight = sqrt_factor*P_sqrt
         except np.linalg.LinAlgError as LinAlgError:
             print(f"(n+kappa)P is not positive definite. Current value is (n+kappa)P = {(n+self.kappa)*P}")
@@ -248,7 +251,7 @@ class ScaledSigmaPoints(SigmaPoints):
         Wc[0] = lam/(lam + n) + (1 - alpha**2 + beta)
         return Wm, Wc
     
-    def compute_sigma_points(self, mu, P):
+    def compute_sigma_points(self, mu, P, P_sqrt = None):
         """
         Computes the sigma points based on Julier's paper
 
@@ -258,6 +261,8 @@ class ScaledSigmaPoints(SigmaPoints):
             DESCRIPTION. Mean value of X 
         P : TYPE np.array(n,n)
             DESCRIPTION. Covariance matrix of X
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
 
         Raises
         ------
@@ -289,7 +294,8 @@ class ScaledSigmaPoints(SigmaPoints):
         
         try:
             sqrt_factor = np.sqrt(n+self.lam)
-            P_sqrt = self.sqrt(P)
+            if P_sqrt is None:
+                P_sqrt = self.sqrt(P)
             P_sqrt_weight = sqrt_factor*P_sqrt
         except np.linalg.LinAlgError as LinAlgError:
             print(f"(n+kappa)P is not positive definite. Current value is (n+kappa)P = {(n+self.kappa)*P}")
@@ -408,7 +414,7 @@ issn = {2331-8422},
         return s1
     
     # def compute_sigma_points(self, mu, P, s):
-    def compute_sigma_points(self, mu, P, S = None, K = None, s1 = None, sqrt_method = None):
+    def compute_sigma_points(self, mu, P, S = None, K = None, s1 = None, sqrt_method = None, P_sqrt = None):
         """
         Computes the sigma points
 
@@ -424,6 +430,8 @@ issn = {2331-8422},
             DESCRIPTION. 4th central moment of X. Can be computed by scipy.stats.moments(data, moment=4)
         s1 : TYPE, optional np.array(n,)
             DESCRIPTION. The default is None. First part of scaling arrays. s1> 0 for every element. If None, algorithm computes the suggested values in the article.
+        P_sqrt : TYPE np.array(n,n), optional
+            DESCRIPTION. default is None. If supplied, algorithm does not compute sqrt(P).
 
         Raises
         ------
@@ -463,7 +471,10 @@ issn = {2331-8422},
         sigmas = np.zeros((n, dim_sigma))
         sigmas[:, 0] = mu
         
-        self.P_sqrt = sqrt_method(P)
+        if P_sqrt is None:
+            self.P_sqrt = sqrt_method(P)
+        else:
+            self.P_sqrt = P_sqrt
         
         #compute scaling and weights
         self.s, Wm = self.compute_scaling_and_weights(P, S, K, s1 = s1)
