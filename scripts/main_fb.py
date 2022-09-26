@@ -35,7 +35,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 20 #this is how many times to repeat each iteration
+N = 100 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -176,10 +176,10 @@ while Ni < N:
             x_true[:, i] = res.y[:, -1] #add the interval to the full list
             if x_true[-1, i] <= eps:
                x_true[-1, i] = eps
-               if w_plant[i+1,-1] < 0:
-                   try:
+               try:
+                   if w_plant[i+1,-1] < 0:
                        w_plant[i+1,-1] = -w_plant[i+1,-1]
-                   except IndexError: #we are already at the last time step, don't need to do sth
+               except IndexError: #we are already at the last time step, don't need to do sth
                        continue
             #Make a new measurement and add measurement noise
             y[:, i] = utils_fb.hx(x_true[:, i], par_true_hx) + v_noise[i, :] 
@@ -243,9 +243,9 @@ plot_it = True
 if plot_it:
     # ylabels = [r"$x_1 [ft]$", r"$x_2 [ft/s]$", r"$x_3 [ft^3$/(lb-$s^2)]$", "$y [ft]$"]#
     # ylabels = [r"$x_1$ [ft]", r"$x_2$ [ft/s]", r"$x_3$ [*]", "$y$ [ft]"]#
-    ylabels = [r"$x_1$ [m]", r"$x_2$ [m/s]", r"$x_3$ [*]", "$y$ [m]"]#
+    ylabels = [r"$x_1$ [m]", r"$x_2$ [m/s]", r"$x_3$ [*]", "$y_1$ [m]", "$y_2$ [Bara]"]#
     kwargs_fill = dict(alpha = .2)    
-    fig1, ax1 = plt.subplots(dim_x + 1, 1, sharex = True)
+    fig1, ax1 = plt.subplots(dim_x + 1 +1, 1, sharex = True)
     for i in range(dim_x): #plot true states and ukf's estimates
         ax1[i].plot(t, x_true[i, :], label = "True")
         # ax1[i].plot([np.nan, np.nan], [np.nan, np.nan], color='w', alpha=0, label=' ')
@@ -289,7 +289,9 @@ if plot_it:
         ax1[i].set_ylabel(ylabels[i])
     ax1[-1].set_xlabel("Time [s]")
     #Plot measurements
-    ax1[-1].plot(t, y[0,:], marker = "x", markersize = 3, linewidth = 0, label = "y")
+    ax1[-2].plot(t, y[0,:], marker = "x", markersize = 3, linewidth = 0, label = ylabels[-2])
+    ax1[-1].plot(t, y[1,:], marker = "x", markersize = 3, linewidth = 0, label = ylabels[-1])
+    ax1[-2].set_ylabel(ylabels[-2])
     ax1[-1].set_ylabel(ylabels[-1])
     # ax1[0].legend()        
     ax1[0].legend(ncol = 3,
@@ -317,26 +319,85 @@ if N >= 5: #only plot this if we have done some iterations
     # ax_cost.set_ylabel(r"$RMSE_{norm}-RMSE_{UKF}$")
     
     cols_kappa = [r"$(P^+,\rho^+)$", r"$(P_y, \rho_y)$"]
-    cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
-    df_kappa = pd.DataFrame(columns = cols_kappa, data = kappa_max.T)
+    # cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
+    ylabel_kappa = r"$\kappa_{max}$"
+    df_kappa = pd.DataFrame(columns = [ylabel_kappa], data = kappa_max[0,:].T)
+    df_kappa["Matrix"] = cols_kappa[0]
     df_kappa["Method"] = "UKF"
-    df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
-    df_kappa_norm["Method"] = "UKF-Norm"
     
-    df_kappa = pd.concat([df_kappa, df_kappa_norm])
+    df_kappa2 = pd.DataFrame(columns = [ylabel_kappa], data = kappa_max[1,:].T)
+    df_kappa2["Matrix"] = cols_kappa[1]
+    df_kappa2["Method"] = "UKF"
     
-    #use the log
-    df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
-    df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
     
-    df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
-    # ax_kappa = sns.violinplot(data = df_kappa)
-    df_kappa["dummy"] = ""
-    # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
+    df_kappa_norm = pd.DataFrame(columns = [ylabel_kappa], data = kappa_norm_max[0,:].T)
+    df_kappa_norm["Matrix"] = cols_kappa[0]
+    df_kappa_norm["Method"] = "UKF-norm"
+    
+    df_kappa_norm2 = pd.DataFrame(columns = [ylabel_kappa], data = kappa_norm_max[1,:].T)
+    df_kappa_norm2["Matrix"] = cols_kappa[1]
+    df_kappa_norm2["Method"] = "UKF-norm"
+    
+    df_kappa = pd.concat([df_kappa, df_kappa2, df_kappa_norm, df_kappa_norm2], ignore_index = True)
+    
+    
     fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
-    ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
-    ax_kappa_hist.set_title("Max log(cond nr)")
-    # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
-    # ax_kappa.set_yscale("log")
-    # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
+    ax_kappa_hist = sns.stripplot(data = df_kappa, x = "Matrix", y = ylabel_kappa, ax = ax_kappa_hist, hue = "Method")
+    ax_kappa_hist.set_yscale("log")
+    plt.tight_layout()
+    
+    fig_kappa_hist2, ax_kappa_hist2 = plt.subplots(1,1)
+    df_kappa2 = df_kappa.copy()
+    df_kappa2[ylabel_kappa] = np.log(df_kappa2[ylabel_kappa].values)
+    df_kappa2 = df_kappa2.rename(columns = {ylabel_kappa: r"log($\kappa_{max}$)"})
+    ax_kappa_hist2 = sns.stripplot(data = df_kappa2, x = "Matrix", y = r"log($\kappa_{max}$)", ax = ax_kappa_hist2, hue = "Method")
+    plt.tight_layout()
+    
+    # df_kappa["Method"] = "UKF"
+    # df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
+    # df_kappa_norm["Method"] = "UKF-Norm"
+    
+    # df_kappa = pd.concat([df_kappa, df_kappa_norm])
+    
+    # #use the log
+    # df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
+    # df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
+    
+    # df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
+    # # ax_kappa = sns.violinplot(data = df_kappa)
+    # df_kappa["dummy"] = ""
+    # # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
+    # fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
+    # ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
+    # ax_kappa_hist.set_title("Max log(cond nr)")
+    # # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
+    # # ax_kappa.set_yscale("log")
+    # # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
+    
+    
+    
+    
+    # cols_kappa = [r"$(P^+,\rho^+)$", r"$(P_y, \rho_y)$"]
+    # cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
+    # df_kappa = pd.DataFrame(columns = cols_kappa, data = kappa_max.T)
+    # df_kappa["Method"] = "UKF"
+    # df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
+    # df_kappa_norm["Method"] = "UKF-Norm"
+    
+    # df_kappa = pd.concat([df_kappa, df_kappa_norm])
+    
+    # #use the log
+    # df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
+    # df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
+    
+    # df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
+    # # ax_kappa = sns.violinplot(data = df_kappa)
+    # df_kappa["dummy"] = ""
+    # # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
+    # fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
+    # ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
+    # ax_kappa_hist.set_title("Max log(cond nr)")
+    # # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
+    # # ax_kappa.set_yscale("log")
+    # # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
 

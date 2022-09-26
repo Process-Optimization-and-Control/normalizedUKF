@@ -36,8 +36,9 @@ def ode_model_plant(t, x, w, par):
     return x_dot
 
 def hx(x, par):
-    y = np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"]))
-    return np.array([y])
+    y = np.array([np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"])),
+                  par["Pb"]*((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])**par["exp"]])
+    return y
 
 
 
@@ -82,10 +83,23 @@ def get_literature_values():
                 "k": 20e3, # [ft]
                 "g": 32.2 # [ft/s2]
                 }
+    
+    
+    #Note: for barometric parameters in the measurement equation, see https://en.wikipedia.org/wiki/Barometric_formula for the barometric tables. Chosen 71 0000 m as the reference level (everything with "b" afterwards)
     par_mean_hx = {
         "M": 100e3, # [ft]
-        "a": 100e3 # [ft]
+        "a": 100e3, # [ft]
+        "g0": 9.80665, #[ m/s2] updated measurent model. Additional parameters
+        "Mw": 0.0289644, # [kg/mol] - molar mass
+        "R": 8.3144598,  # [J/(mol·K)] - gas constant
+        "hb": 70e3,  # [m] - height of reference level (b is reference value)
+        "Tb": 214.65,  # [K] - reference temperature
+        "Pb": 3.96,  # [Pa] - reference pressure - can be changed to bar
+        "Lb": -0.002,  # [K/m] - temperature lapse rate
         }
+    par_mean_hx["exp"] = -par_mean_hx["g0"]*par_mean_hx["Mw"]/(par_mean_hx["R"]*par_mean_hx["Lb"]) # [-] exponent in the barometric equation
+    
+    
 
     #Kalman filter values in the description
     # Q = np.diag([0., 0., 0.]) #as in Dan Simon's exercise text
@@ -100,30 +114,37 @@ def get_literature_values():
     # Q = np.eye(3)*0.
     
     #Measurement noise
-    R = np.array([10e3])#[ft^2]
+    R = np.diag([10e3, #[ft^2]
+                 1e2]) #[Pa**2]
     
-    # #convert to SI units
-    # kg_per_lbs = 0.45359237
-    # m_per_ft = 0.3048
+    #convert to SI units
+    kg_per_lbs = 0.45359237
+    m_per_ft = 0.3048
     
-    # x0[0] *= m_per_ft
-    # x0[1] *= m_per_ft
-    # x0[2] *= (m_per_ft**3)/kg_per_lbs
+    #and make scaling worse
+    bar_per_pa = 1e-5
     
-    # P0[0, 0] *= (m_per_ft)**2
-    # P0[1, 1] *= (m_per_ft)**2
-    # P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
+    x0[0] *= m_per_ft
+    x0[1] *= m_per_ft
+    x0[2] *= (m_per_ft**3)/kg_per_lbs
     
-    # par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
-    # par_mean_fx["k"] *= m_per_ft
-    # par_mean_fx["g"] *= m_per_ft
-    # par_mean_hx["M"] *= m_per_ft
-    # par_mean_hx["a"] *= m_per_ft
+    P0[0, 0] *= (m_per_ft)**2
+    P0[1, 1] *= (m_per_ft)**2
+    P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
     
-    # R *= m_per_ft**2
-    # Q[0,0] *= m_per_ft**2 
-    # Q[1,1] *= m_per_ft**2 
-    # Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
+    par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
+    par_mean_fx["k"] *= m_per_ft
+    par_mean_fx["g"] *= m_per_ft
+    par_mean_hx["M"] *= m_per_ft
+    par_mean_hx["a"] *= m_per_ft
+    
+    par_mean_hx["Pb"] *= bar_per_pa
+    
+    R[0,0] *= m_per_ft**2
+    R[1,1] *= bar_per_pa**2
+    Q[0,0] *= m_per_ft**2 
+    Q[1,1] *= m_per_ft**2 
+    Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
     
     return x0, P0, par_mean_fx, par_mean_hx, Q, R
 
