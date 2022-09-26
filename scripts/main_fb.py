@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import pathlib
 import os
 import scipy.linalg
+import pandas as pd
+import seaborn as sns
 # import matplotlib.patches as plt_patches
 # import matplotlib.transforms as plt_transforms
 import copy
@@ -33,14 +35,16 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 1 #this is how many times to repeat each iteration
+N = 20 #this is how many times to repeat each iteration
 dim_x = 3
-j_valappil = np.zeros((dim_x, N))
-j_valappil_norm = np.zeros((dim_x, N))
+cost_func = np.zeros((dim_x, N))
+cost_func_norm = np.zeros((dim_x, N))
+kappa_max = np.zeros((2, N)) #for P_post and K
+kappa_norm_max = np.zeros((2, N))
 Ni = 0
 rand_seed = 1234
 
-run_ukf = False
+run_ukf = True
 run_ukf_norm = True
 calc_RMSE = True
 while Ni < N:
@@ -85,8 +89,8 @@ while Ni < N:
         P_post_norm = np.zeros((dim_x, dim_t))
         
         #condition numbers
-        kappa = np.zeros(dim_t)
-        kappa_norm = np.zeros(dim_t)
+        kappa = np.zeros((2, dim_t)) #P_post and Py_pred
+        kappa_norm = np.zeros((2,dim_t)) #corr_post and corr_y
         
         x_true[:, 0] = x0
         x_ol[:, 0] = x0_kf.copy()
@@ -107,8 +111,8 @@ while Ni < N:
         args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
         
         #%% Define UKF with adaptive Q, R from UT
-        points = spc.JulierSigmaPoints(dim_x,kappa = 3-dim_x, sqrt_method = sqrt_fn)
-        # points = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
+        # points = spc.JulierSigmaPoints(dim_x,kappa = 3-dim_x, sqrt_method = sqrt_fn)
+        points = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         fx_ukf = lambda x: utils_fb.fx_ukf_ode(utils_fb.ode_model_plant, 
                                                      t_span, 
                                                      x,
@@ -125,10 +129,10 @@ while Ni < N:
                                     R = R_nom)
         
         #%% Define UKF with adaptive Q, R from LHS/MC
-        points_norm = spc.JulierSigmaPoints(dim_x,
-                                          kappa = 3-dim_x,
-                                          sqrt_method = sqrt_fn)
-        # points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
+        # points_norm = spc.JulierSigmaPoints(dim_x,
+        #                                   kappa = 3-dim_x,
+        #                                   sqrt_method = sqrt_fn)
+        points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         # fx_ukf_norm = lambda x, dt_kf: utils_fb.fx_ukf_ode(utils_fb.ode_model_plant, 
         #                                               t_span, 
         #                                               x,
@@ -153,9 +157,10 @@ while Ni < N:
         w_noise_kf = np.zeros(dim_x)
         v_noise = np.random.multivariate_normal(kf.v_mean, kf.R, size = dim_t)
         
-        kappa[0] = np.linalg.cond(kf.P_post)
-        kappa_norm[0] = np.linalg.cond(kf_norm.corr_post)
+        kappa[0, 0] = np.linalg.cond(kf.P_post)
+        kappa_norm[0, 0] = np.linalg.cond(kf_norm.corr_post)
         
+        eps = 1e-5 # lowest limit for x3
         #%% Simulate the plant and UKF
         for i in range(1,dim_t):
             t_span = (t[i-1], t[i])
@@ -169,6 +174,13 @@ while Ni < N:
                                             args = (w_plant_i, par_true_fx)
                                             )
             x_true[:, i] = res.y[:, -1] #add the interval to the full list
+            if x_true[-1, i] <= eps:
+               x_true[-1, i] = eps
+               if w_plant[i+1,-1] < 0:
+                   try:
+                       w_plant[i+1,-1] = -w_plant[i+1,-1]
+                   except IndexError: #we are already at the last time step, don't need to do sth
+                       continue
             #Make a new measurement and add measurement noise
             y[:, i] = utils_fb.hx(x_true[:, i], par_true_hx) + v_noise[i, :] 
             
@@ -188,13 +200,15 @@ while Ni < N:
             if run_ukf:
                 kf.predict()
                 kf.update(y[:, i])
-                kappa[i] = np.linalg.cond(kf.P_post)
+                kappa[0, i] = np.linalg.cond(kf.P_post)
+                kappa[1, i] = np.linalg.cond(kf.Py_pred)
            
             #Prediction and correction step of normalized UKF. Calculate condition numbers
             if run_ukf_norm:
                 kf_norm.predict()
                 kf_norm.update(y[:, i])
-                kappa_norm[i] = np.linalg.cond(kf_norm.corr_post)
+                kappa_norm[0, i] = np.linalg.cond(kf_norm.corr_post)
+                kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_y)
 
             # Save the estimates
             x_post[:, i] = kf.x_post
@@ -207,20 +221,17 @@ while Ni < N:
         
         
         
-        #%% Compute performance index
-        j_valappil[:, Ni] = utils_fb.compute_performance_index_valappil(x_post, 
-                                                                      x_ol, 
-                                                                      x_true,
-                                                                      RMSE = calc_RMSE)
-        j_valappil_norm[:, Ni] = utils_fb.compute_performance_index_valappil(x_post_norm, 
-                                                                          x_ol, 
-                                                                          x_true,
-                                                                          RMSE = calc_RMSE)
-    
+        #%% Compute performance index and condition numbers
+        cost_func[:, Ni] = utils_fb.compute_performance_index_valappil(x_post, x_ol, x_true, RMSE = calc_RMSE)
+        cost_func_norm[:, Ni] = utils_fb.compute_performance_index_valappil(x_post_norm, x_ol, x_true, RMSE = calc_RMSE)
         
+        #condition numbers
+        kappa_max[:, Ni] = np.max(kappa, axis = 1)
+        kappa_norm_max[:, Ni] = np.max(kappa_norm, axis = 1)
+    
         Ni += 1
         rand_seed += 1
-        if (Ni%1 == 0): #print every 5th iteration                                                               
+        if (Ni%5 == 0): #print every 5th iteration                                                               
             print(f"End of iteration {Ni}/{N}")
     except BaseException as e:
         # print(e)
@@ -286,8 +297,8 @@ if plot_it:
     plt.tight_layout()
     
     fig_kappa, ax_kappa = plt.subplots(1, 1)
-    ax_kappa.plot(t, kappa, label = r"$P_k^+ - UKF$")
-    ax_kappa.plot(t, kappa_norm, label = r"$\rho_k^+ - UKF_{norm}$")
+    ax_kappa.plot(t, kappa[0,:], label = r"$P_k^+ - UKF$")
+    ax_kappa.plot(t, kappa_norm[0,:], label = r"$\rho_k^+ - UKF_{norm}$")
     ax_kappa.set_yscale("log")
     ax_kappa.set_ylabel(r"$\kappa$ [-]")
     ax_kappa.set_xlabel(r"Time [s]")
@@ -295,7 +306,37 @@ if plot_it:
     ax_kappa.legend()
     plt.tight_layout()
 
-# print("Median value of cost function is\n")
-# for i in range(dim_x):
-#     print(f"{ylabels[i]}: Q-UT = {np.median(j_valappil[i]): .3f}, Q-LHS-{N_lhs_dist} = {np.median(j_valappil_lhs[i]): .3f}, Q-MC-{N_mc_dist} = {np.median(j_valappil_mc[i]): .3f}, Q-MCm-{N_mcm_dist} = {np.median(j_valappil_mcm[i]): .3f} and Q-fixed = {np.median(j_valappil_qf[i]): .3f}")
+#%% Violin plot of cost function
+if N >= 5: #only plot this if we have done some iterations
+    cols_x = [r"$x_1$", r"$x_2$", r"$x_3$"]
+    cols_x = ["x1", "x2", "x3"]
+    
+    cost_diff = cost_func_norm - cost_func
+    df_j_diff = pd.DataFrame(columns = [cols_x], data = cost_diff.T)
+    # ax_cost = sns.violinplot(df_j_diff)
+    # ax_cost.set_ylabel(r"$RMSE_{norm}-RMSE_{UKF}$")
+    
+    cols_kappa = [r"$(P^+,\rho^+)$", r"$(P_y, \rho_y)$"]
+    cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
+    df_kappa = pd.DataFrame(columns = cols_kappa, data = kappa_max.T)
+    df_kappa["Method"] = "UKF"
+    df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
+    df_kappa_norm["Method"] = "UKF-Norm"
+    
+    df_kappa = pd.concat([df_kappa, df_kappa_norm])
+    
+    #use the log
+    df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
+    df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
+    
+    df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
+    # ax_kappa = sns.violinplot(data = df_kappa)
+    df_kappa["dummy"] = ""
+    # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
+    fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
+    ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
+    ax_kappa_hist.set_title("Max log(cond nr)")
+    # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
+    # ax_kappa.set_yscale("log")
+    # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
 
