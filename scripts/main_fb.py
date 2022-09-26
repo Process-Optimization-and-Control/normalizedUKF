@@ -308,7 +308,7 @@ if plot_it:
     ax_kappa.legend()
     plt.tight_layout()
 
-#%% Violin plot of cost function
+#%% Violin plot of cost function and condition numbers for selected matrices
 if N >= 5: #only plot this if we have done some iterations
     cols_x = [r"$x_1$", r"$x_2$", r"$x_3$"]
     cols_x = ["x1", "x2", "x3"]
@@ -353,51 +353,4 @@ if N >= 5: #only plot this if we have done some iterations
     ax_kappa_hist2 = sns.stripplot(data = df_kappa2, x = "Matrix", y = r"log($\kappa_{max}$)", ax = ax_kappa_hist2, hue = "Method")
     plt.tight_layout()
     
-    # df_kappa["Method"] = "UKF"
-    # df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
-    # df_kappa_norm["Method"] = "UKF-Norm"
-    
-    # df_kappa = pd.concat([df_kappa, df_kappa_norm])
-    
-    # #use the log
-    # df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
-    # df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
-    
-    # df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
-    # # ax_kappa = sns.violinplot(data = df_kappa)
-    # df_kappa["dummy"] = ""
-    # # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
-    # fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
-    # ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
-    # ax_kappa_hist.set_title("Max log(cond nr)")
-    # # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
-    # # ax_kappa.set_yscale("log")
-    # # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
-    
-    
-    
-    
-    # cols_kappa = [r"$(P^+,\rho^+)$", r"$(P_y, \rho_y)$"]
-    # cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
-    # df_kappa = pd.DataFrame(columns = cols_kappa, data = kappa_max.T)
-    # df_kappa["Method"] = "UKF"
-    # df_kappa_norm = pd.DataFrame(columns = cols_kappa, data = kappa_norm_max.T)
-    # df_kappa_norm["Method"] = "UKF-Norm"
-    
-    # df_kappa = pd.concat([df_kappa, df_kappa_norm])
-    
-    # #use the log
-    # df_kappa[cols_kappa[0]] = np.log(df_kappa[cols_kappa[0]].values)
-    # df_kappa[cols_kappa[1]] = np.log(df_kappa[cols_kappa[1]].values)
-    
-    # df_kappa = df_kappa.drop(columns = [cols_kappa[1]])
-    # # ax_kappa = sns.violinplot(data = df_kappa)
-    # df_kappa["dummy"] = ""
-    # # ax_kappa = sns.violinplot(data = df_kappa, x = "Method", y = cols_kappa[0], split = True, bw = .2)
-    # fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
-    # ax_kappa_hist = sns.swarmplot(data = df_kappa, x = "Method", y = cols_kappa[0], ax = ax_kappa_hist)
-    # ax_kappa_hist.set_title("Max log(cond nr)")
-    # # ax_kappa = sns.swarmplot(data = df_kappa, x = "dummy", y = cols_kappa[0], hue = "Method")
-    # # ax_kappa.set_yscale("log")
-    # # fig_v, ax_v = plt.subplots(dim_x,1, sharex = True)
-
+   
