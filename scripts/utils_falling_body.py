@@ -122,7 +122,7 @@ def get_literature_values():
     m_per_ft = 0.3048
     
     #and make scaling worse
-    bar_per_pa = 1e-5
+    # bar_per_pa = 1e-5
     
     x0[0] *= m_per_ft
     x0[1] *= m_per_ft
@@ -138,10 +138,10 @@ def get_literature_values():
     par_mean_hx["M"] *= m_per_ft
     par_mean_hx["a"] *= m_per_ft
     
-    par_mean_hx["Pb"] *= bar_per_pa
+    # par_mean_hx["Pb"] *= bar_per_pa
     
     R[0,0] *= m_per_ft**2
-    R[1,1] *= bar_per_pa**2
+    # R[1,1] *= bar_per_pa**2
     Q[0,0] *= m_per_ft**2 
     Q[1,1] *= m_per_ft**2 
     Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 

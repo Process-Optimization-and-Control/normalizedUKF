@@ -37,6 +37,10 @@ class SigmaPoints():
 
         """
         self.n = n
+        
+        #principal matrix square root or Cholesky factorization (only lower triangular factorization) is supported. Default for np.linalg.cholesky is lower factorization, default for scipy.linalg.cholesky is upper factorization
+        if sqrt_method is scipy.linalg.cholesky:
+            sqrt_method = lambda P: scipy.linalg.cholesky(P, lower = True)
         self.sqrt = sqrt_method
         
     def num_sigma_points(self):

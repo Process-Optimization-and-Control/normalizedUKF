@@ -35,7 +35,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 100 #this is how many times to repeat each iteration
+N = 10 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -71,7 +71,7 @@ while Ni < N:
         dt_y = .5 # [s] <=> 50 ms. Measurement frequency
         dt_int = 1e-3 #[s] - discretization time for integration
         
-        t_end = 30
+        t_end = 30 #[s]
         t = np.linspace(0, t_end, int(t_end/dt_y))
         dim_t = t.shape[0]
         # t = np.linspace(t_y[0],t_y[0+1], int(dt_y/dt), endpoint = True)
@@ -108,7 +108,8 @@ while Ni < N:
         
         # sqrt_fn = scipy.linalg.sqrtm #principal matrix square root
         
-        args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
+        args_ode_solver = {}
+        # args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
         
         #%% Define UKF with adaptive Q, R from UT
         # points = spc.JulierSigmaPoints(dim_x,kappa = 3-dim_x, sqrt_method = sqrt_fn)
@@ -243,7 +244,7 @@ plot_it = True
 if plot_it:
     # ylabels = [r"$x_1 [ft]$", r"$x_2 [ft/s]$", r"$x_3 [ft^3$/(lb-$s^2)]$", "$y [ft]$"]#
     # ylabels = [r"$x_1$ [ft]", r"$x_2$ [ft/s]", r"$x_3$ [*]", "$y$ [ft]"]#
-    ylabels = [r"$x_1$ [m]", r"$x_2$ [m/s]", r"$x_3$ [*]", "$y_1$ [m]", "$y_2$ [Bara]"]#
+    ylabels = [r"$x_1$ [m]", r"$x_2$ [m/s]", r"$x_3$ [*]", "$y_1$ [m]", "$y_2$ [Pa]"]#
     kwargs_fill = dict(alpha = .2)    
     fig1, ax1 = plt.subplots(dim_x + 1 +1, 1, sharex = True)
     for i in range(dim_x): #plot true states and ukf's estimates
