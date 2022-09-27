@@ -35,7 +35,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 10 #this is how many times to repeat each iteration
+N = 1 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -216,6 +216,8 @@ while Ni < N:
             x_post_norm[:, i] = kf_norm.x_post
             P_post[:, i] = np.diag(kf.P_post)
             P_post_norm[:, i] = np.diag(np.square(kf_norm.std_dev_post))
+            
+            print(i)
             
         
         y[:, 0] = np.nan #the 1st measurement is not real, just for programming convenience

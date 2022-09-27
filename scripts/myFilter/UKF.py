@@ -216,7 +216,7 @@ class UKFBase():
             # print(f"i={i}")
         return P_xy
     
-    def correlation_from_covariance(self, cov):
+    def correlation_from_covariance(self, cov, sigmas = None):
         """
         Calculate correlation matrix from a covariance matrix
 
@@ -224,6 +224,8 @@ class UKFBase():
         ----------
         cov : TYPE np.array((dim_p, dim_p))
             DESCRIPTION. Covariance matrix
+        sigmas : TYPE Optional, defualt is None
+            DESCRIPTION. Standard deviation. If None is supplied, it calculates the exact standard deviation. If it is supplied, it must be a np.array((dim_p,))
 
         Returns
         -------
@@ -231,8 +233,11 @@ class UKFBase():
             DESCRIPTION. Correlation matrix
 
         """
-        sigmas = np.sqrt(np.diag(cov))
+        if sigmas is None: #calculate exact standard deviation matrix
+            sigmas = np.sqrt(np.diag(cov))
+        assert sigmas.ndim == 1
         dim_p = sigmas.shape[0]
+        
         
         #Create sigma_mat = [[s1, s1 ,.., s1],
         # [s2, s2,...,s2],
@@ -545,7 +550,7 @@ class Normalized_UKF_additive_noise(UKFBase):
         
 
         if UT is None:
-            UT = unscented_transform.unscented_transformation_gut
+            UT = unscented_transform.unscented_transformation_corr_std_dev
         
         #calculate the square-root of the covariance matrix by using standard deviations and correlation matrix
         corr_sqrt = self.msqrt(self.corr_post)
@@ -564,15 +569,101 @@ class Normalized_UKF_additive_noise(UKFBase):
 
         #TO DO: implement "smart" way of obtaining std_dev_prior, corr_prior directly from the UT. Everything below should be updated.
         # pass the propagated sigmas of the states through the unscented transform to compute prior
-        self.x_prior, P_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x)
+        self.x_prior, corr_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x, np.diag(self.std_dev_post))
         
-        #add process noise
-        self.x_prior += w_mean
-        P_prior += Q
         
-        self.corr_prior, std_dev_prior = self.correlation_from_covariance(P_prior)
-        self.std_dev_prior = np.diag(std_dev_prior)
         
+        if False: #This works well
+            corr_Q, sigmas_post_test = self.correlation_from_covariance(Q, sigmas = np.diag(self.std_dev_post))
+            
+            assert (sigmas_post_test == np.diag(self.std_dev_post)).all()
+            
+            # print(f"corr_prior before Q: {corr_prior}\n\n",
+            #       f"corr_Q: {corr_Q}")
+            
+            print(f"k_corr_Q: {np.linalg.cond(corr_Q):.1e}")
+            
+            #add process noise
+            self.x_prior += w_mean
+            corr_prior += corr_Q
+            
+            
+            # print(f"corr_prior before self: {corr_prior}\n\n")
+            
+            self.corr_prior, std_dev_prior_update = self.correlation_from_covariance(corr_prior)
+            
+            # print(f"self.corr_prior: {self.corr_prior}\n\n",
+            #       f"std_dev_prior_update: {std_dev_prior_update}")
+            
+            self.std_dev_prior = np.diag(std_dev_prior_update*np.diag(self.std_dev_post))
+            
+            # print(f"self.std_dev_post: {self.std_dev_post}\n\n",
+            #       f"self.std_dev_prior: {self.std_dev_prior}\n\n")
+        
+        else: #this gives higher condition numbers at this case study
+            self.corr_prior, self.std_dev_prior = self.get_prior_corr_and_std_dev_after_Q(corr_prior, self.std_dev_post, Q)
+        
+        
+    def get_prior_corr_and_std_dev_after_Q(self, corr_pred, std_dev, Q):
+        """
+        Adds noise to the predicted correlation matrix (which is not an actual correlation matrix) and (prior) standard deviation. Gives back the true (posterior) correlation matrix and (posterior) standard deviations
+
+        Parameters
+        ----------
+        corr_pred : TYPE np.array((dim_x, dim_x))
+            DESCRIPTION. Predicted correlation matrix. NB: not a true correlation matrix (elements are NOT in the range [-1,1], but typically reasonable close)
+        std_dev : TYPE np.array((dim_x, dim_x))
+            DESCRIPTION. Diagonal matrix of standard deviations, np.diag([s1,s2,...,sx]) where s1,..,sx are (scalars) standard deviations of variable 1,...,x
+        Q : TYPE np.array((dim_x, dim_x))
+            DESCRIPTION. Process noise matrix, to be added
+
+        Returns
+        -------
+        corr_updated : TYPE np.array((dim_x, dim_x))
+            DESCRIPTION.
+        std_dev_updated : TYPE np.array((dim_x, dim_x))
+            DESCRIPTION.
+
+        """
+        dim_x = std_dev.shape[0]
+        assert (dim_x, dim_x) == std_dev.shape
+        
+        #std_dev_mat = 
+        # [[s1,s1,s1],
+        #  [s2,s2,s2],
+        #  [sx,sx,sx]]
+        std_dev_mat = np.tile(np.diag(std_dev).reshape(-1,1), dim_x)
+        
+        Q_reduced = np.divide(Q, std_dev_mat.T) # = corr_Q@std_dev
+        
+        P_reduced = corr_pred @ std_dev + Q_reduced
+        
+        print(f"k_Q_red: {np.linalg.cond(Q_reduced):.2e}\n\n",
+              f"k_P_red: {np.linalg.cond(P_reduced):.2e}\n\n")
+        
+        std_dev_updated = np.diag(np.sqrt(np.diag(std_dev))
+                                  *np.sqrt(np.diag(P_reduced)))
+        
+        std_dev_updated_inv = np.diag([1/si for si in np.diag(std_dev_updated)]) #invert the matrix - since it is diagonal, the inverse is the reciprocal of the diagonals
+        
+        corr1 = std_dev_updated_inv @ std_dev #~1-s (low condition number)
+        
+        corr2 = P_reduced @ std_dev_updated_inv
+        corr_updated = corr1 @ corr2
+        
+        # print(f"corr_pred: {corr_pred}\n\n",
+        #       f"std_dev: {std_dev}\n\n",
+        #       f"Q: {Q}\n\n",
+        #       f"std_dev_mat: {std_dev_mat}\n\n",
+        #       f"Q_reduced: {Q_reduced}\n\n",
+        #       f"P_reduced: {P_reduced}\n\n",
+        #       f"std_dev_updated: {std_dev_updated}\n\n",
+        #       f"corr_updated: {corr_updated}\n\n",
+        #       )
+        
+        return corr_updated, std_dev_updated
+    
+    
     def covariance_from_corr_std_dev(self, corr, std_dev):
         assert (self._dim_x, self._dim_x) == std_dev.shape
         assert (self._dim_x, self._dim_x) == corr.shape
