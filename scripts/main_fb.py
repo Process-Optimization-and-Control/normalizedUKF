@@ -35,12 +35,12 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 1 #this is how many times to repeat each iteration
+N = 100 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
-kappa_max = np.zeros((2, N)) #for P_post and K
-kappa_norm_max = np.zeros((2, N))
+kappa_max = np.zeros((3, N)) #for P_post, P_prior and K
+kappa_norm_max = np.zeros((3, N))
 Ni = 0
 rand_seed = 1234
 
@@ -49,7 +49,7 @@ run_ukf_norm = True
 calc_RMSE = True
 while Ni < N:
     try:
-        np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
+        # np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
         #%% Import the distributions of the parameters for the fx equations (states)
         #Modes of the dists are used for the true system, and mean of the dists are the parameters for the UKF
         
@@ -89,8 +89,8 @@ while Ni < N:
         P_post_norm = np.zeros((dim_x, dim_t))
         
         #condition numbers
-        kappa = np.zeros((2, dim_t)) #P_post and Py_pred
-        kappa_norm = np.zeros((2,dim_t)) #corr_post and corr_y
+        kappa = np.zeros((3, dim_t)) #P_post, P_prior and Py_pred
+        kappa_norm = np.zeros((3,dim_t)) #corr_post, corr_prior and corr_y
         
         x_true[:, 0] = x0
         x_ol[:, 0] = x0_kf.copy()
@@ -202,14 +202,16 @@ while Ni < N:
                 kf.predict()
                 kf.update(y[:, i])
                 kappa[0, i] = np.linalg.cond(kf.P_post)
-                kappa[1, i] = np.linalg.cond(kf.Py_pred)
+                kappa[1, i] = np.linalg.cond(kf.P_prior)
+                kappa[2, i] = np.linalg.cond(kf.Py_pred)
            
             #Prediction and correction step of normalized UKF. Calculate condition numbers
             if run_ukf_norm:
                 kf_norm.predict()
                 kf_norm.update(y[:, i])
                 kappa_norm[0, i] = np.linalg.cond(kf_norm.corr_post)
-                kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_y)
+                kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_prior)
+                kappa_norm[2, i] = np.linalg.cond(kf_norm.corr_y)
 
             # Save the estimates
             x_post[:, i] = kf.x_post
@@ -217,7 +219,6 @@ while Ni < N:
             P_post[:, i] = np.diag(kf.P_post)
             P_post_norm[:, i] = np.diag(np.square(kf_norm.std_dev_post))
             
-            print(i)
             
         
         y[:, 0] = np.nan #the 1st measurement is not real, just for programming convenience
@@ -321,7 +322,7 @@ if N >= 5: #only plot this if we have done some iterations
     # ax_cost = sns.violinplot(df_j_diff)
     # ax_cost.set_ylabel(r"$RMSE_{norm}-RMSE_{UKF}$")
     
-    cols_kappa = [r"$(P^+,\rho^+)$", r"$(P_y, \rho_y)$"]
+    cols_kappa = [r"$(P^+,\rho^+)$", r"$(P^-,\rho^-)$", r"$(P_y, \rho_y)$"]
     # cols_kappa = ["(P^+,\rho^+)", "(P_y, \rho_y)"]
     ylabel_kappa = r"$\kappa_{max}$"
     df_kappa = pd.DataFrame(columns = [ylabel_kappa], data = kappa_max[0,:].T)
@@ -332,6 +333,10 @@ if N >= 5: #only plot this if we have done some iterations
     df_kappa2["Matrix"] = cols_kappa[1]
     df_kappa2["Method"] = "UKF"
     
+    df_kappa3 = pd.DataFrame(columns = [ylabel_kappa], data = kappa_max[2,:].T)
+    df_kappa3["Matrix"] = cols_kappa[2]
+    df_kappa3["Method"] = "UKF"
+    
     
     df_kappa_norm = pd.DataFrame(columns = [ylabel_kappa], data = kappa_norm_max[0,:].T)
     df_kappa_norm["Matrix"] = cols_kappa[0]
@@ -341,7 +346,11 @@ if N >= 5: #only plot this if we have done some iterations
     df_kappa_norm2["Matrix"] = cols_kappa[1]
     df_kappa_norm2["Method"] = "UKF-norm"
     
-    df_kappa = pd.concat([df_kappa, df_kappa2, df_kappa_norm, df_kappa_norm2], ignore_index = True)
+    df_kappa_norm3 = pd.DataFrame(columns = [ylabel_kappa], data = kappa_norm_max[2,:].T)
+    df_kappa_norm3["Matrix"] = cols_kappa[2]
+    df_kappa_norm3["Method"] = "UKF-norm"
+    
+    df_kappa = pd.concat([df_kappa, df_kappa2, df_kappa3, df_kappa_norm, df_kappa_norm2, df_kappa_norm3], ignore_index = True)
     
     
     fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)

@@ -168,20 +168,63 @@ class UKFBase():
         sigmas_out = np.array(list(sigmas_out)).T
         return sigmas_out
 
-    def cross_covariance(self, x_mean, y_mean, sigmas_x, sigmas_y, W_c):
+    # def cross_covariance(self, x_mean, y_mean, sigmas_x, sigmas_y, W_c):
+    #     """
+    #     Cross-covariance between two probability distribution x,y
+
+    #     Parameters
+    #     ----------
+    #     x_mean : TYPE np.array(dim_x,)
+    #         DESCRIPTION. Mean of the distribution x
+    #     y_mean : TYPE np.array(dim_y,)
+    #         DESCRIPTION. Mean of the distribution y
+    #     sigmas_x : TYPE np.array((dim_x, dim_sigmas))
+    #         DESCRIPTION. Sigma-points created from the x-distribution
+    #     sigmas_y : TYPE np.array((dim_y, dim_sigmas))
+    #         DESCRIPTION. Sigma-points created from the y-distribution
+    #     W_c : TYPE np.array(dim_sigmas,)
+    #         DESCRIPTION. Weights to compute the covariance
+
+    #     Returns
+    #     -------
+    #     P_xy : TYPE np.array((dim_x, dim_y))
+    #         DESCRIPTION. Cross-covariance between x and y
+
+    #     """
+    #     try:
+    #         (dim_x, dim_sigmas_x) = sigmas_x.shape
+    #     except ValueError:  # sigmas_x is 1D
+    #         sigmas_x = np.atleast_2d(sigmas_x)
+    #         (dim_x, dim_sigmas_x) = sigmas_x.shape
+    #         assert dim_sigmas_x == W_c.shape[0], "Dimensions are wrong"
+    #     try:
+    #         (dim_y, dim_sigmas_y) = sigmas_y.shape
+    #     except ValueError:  # sigmas_y is 1D
+    #         sigmas_y = np.atleast_2d(sigmas_y)
+    #         (dim_y, dim_sigmas_y) = sigmas_y.shape
+    #         assert dim_sigmas_y == dim_sigmas_x, "Dimensions are wrong"
+    #     # dim_x, dim_sigmas_x = sigmas_x.shape
+    #     # dim_y, dim_sigmas_y = sigmas_y.shape
+    #     # assert dim_sigmas_x == dim_sigmas_y, f"dim_sigmas_x != dim_sigmas_y: {dim_sigmas_x} != {dim_sigmas_y}"
+        
+    #     #Calculate sigmas around the mean
+    #     sigmas_x = sigmas_x - x_mean.reshape(-1, 1)
+    #     sigmas_y = sigmas_y - y_mean.reshape(-1, 1)
+        
+    #     P_xy = sum([Wc_i*np.outer(sig_x,sig_y) for Wc_i, sig_x, sig_y in zip(W_c, sigmas_x.T, sigmas_y.T)])
+    #     assert (dim_x, dim_y) == P_xy.shape
+    #     return P_xy
+
+    def cross_covariance(self, sigmas_x, sigmas_y, W_c):
         """
-        Cross-covariance between two probability distribution x,y
+        Cross-covariance between two probability distribution x,y which are already centered around their mean values x_mean, y_mean
 
         Parameters
         ----------
-        x_mean : TYPE np.array(dim_x,)
-            DESCRIPTION. Mean of the distribution x
-        y_mean : TYPE np.array(dim_y,)
-            DESCRIPTION. Mean of the distribution y
         sigmas_x : TYPE np.array((dim_x, dim_sigmas))
-            DESCRIPTION. Sigma-points created from the x-distribution
+            DESCRIPTION. Sigma-points created from the x-distribution, centered around x_mean
         sigmas_y : TYPE np.array((dim_y, dim_sigmas))
-            DESCRIPTION. Sigma-points created from the y-distribution
+            DESCRIPTION. Sigma-points created from the y-distribution, centered around y_mean
         W_c : TYPE np.array(dim_sigmas,)
             DESCRIPTION. Weights to compute the covariance
 
@@ -203,17 +246,10 @@ class UKFBase():
             sigmas_y = np.atleast_2d(sigmas_y)
             (dim_y, dim_sigmas_y) = sigmas_y.shape
             assert dim_sigmas_y == dim_sigmas_x, "Dimensions are wrong"
-        # dim_x, dim_sigmas_x = sigmas_x.shape
-        # dim_y, dim_sigmas_y = sigmas_y.shape
-        # assert dim_sigmas_x == dim_sigmas_y, f"dim_sigmas_x != dim_sigmas_y: {dim_sigmas_x} != {dim_sigmas_y}"
-
-        P_xy = np.zeros((dim_x, dim_y))
-        # print(f"P_xy: {P_xy}")
-        for i in range(dim_sigmas_x):
-            P_xy += W_c[i]*((sigmas_x[:, i] - x_mean.flatten()).reshape(-1, 1)
-                            @ (sigmas_y[:, i] - y_mean.flatten()).reshape(-1, 1).T)
-            # print(P_xy)
-            # print(f"i={i}")
+        
+        #Calculate cross-covariance
+        P_xy = sum([Wc_i*np.outer(sig_x,sig_y) for Wc_i, sig_x, sig_y in zip(W_c, sigmas_x.T, sigmas_y.T)])
+        assert (dim_x, dim_y) == P_xy.shape
         return P_xy
     
     def correlation_from_covariance(self, cov, sigmas = None):
@@ -444,8 +480,8 @@ class UKF_additive_noise(UKFBase):
         self.y_res = y - y_pred
         
         #Kalman gain. Start with cross_covariance
-        Pxy = self.cross_covariance(
-            self.x_prior, y_pred, self.sigmas_raw_hx, self.sigmas_meas, self.Wc)
+        Pxy = self.cross_covariance(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
+                                    self.sigmas_meas - y_pred.reshape(-1,1), self.Wc)
         self.Pxy = Pxy
 
         # Kalman gain
@@ -486,6 +522,9 @@ class Normalized_UKF_additive_noise(UKFBase):
         self.corr_prior = self.corr_post.copy()
         self._dim_x = dim_x
         self.P_dummy = np.nan*np.zeros((dim_x, dim_x)) #dummy matrix, sent to functions which calculate P_sqrt
+        
+        #Need initial standard deviation of y. Set it equal to the noise values
+        self.std_dev_y = np.diag(np.sqrt(np.diag(R))) #elementwise standard deviation of the diagonals (R may have values on the off-diagonals)
 
         #as the noise is additive, dim_x = dim_w, dim_y = dim_v
         assert self._dim_x == self._dim_w
@@ -725,7 +764,7 @@ class Normalized_UKF_additive_noise(UKFBase):
             hx = self.hx
 
         if UT is None:
-            UT = unscented_transform.unscented_transformation_gut
+            UT = unscented_transform.unscented_transformation_corr_std_dev
 
         if v_mean is None:
             v_mean = self.v_mean
@@ -741,7 +780,7 @@ class Normalized_UKF_additive_noise(UKFBase):
 
         # recreate sigma points
         (self.sigmas_raw_hx,
-         self.Wm, self.Wc,
+         self.Wm_x, self.Wc_x,
          P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_prior,
                                                        self.P_dummy, P_sqrt = P_sqrt,
                                                        **kwargs_sigma_points
@@ -753,30 +792,71 @@ class Normalized_UKF_additive_noise(UKFBase):
 
         #TO DO: implement "smart" way of obtaining std_dev_y, corr_y directly from the UT. 
         # compute mean and covariance of the predicted measurement
-        y_pred, Py_pred = UT(self.sigmas_meas, self.Wm, self.Wc)
+        # y_pred, Py_pred = UT(self.sigmas_meas, self.Wm, self.Wc)
         
-        # add measurement noise
-        y_pred += v_mean
-        Py_pred += R 
-        self.y_pred = y_pred
-        # self.Py_pred = Py_pred.copy()
-        self.corr_y, std_dev_y = self.correlation_from_covariance(Py_pred)
-        self.std_dev_y = np.diag(std_dev_y)
+        """
+        Start
+        """
+        # pass the propagated sigmas of the states through the unscented transform to compute the (predicted) corr_prior and (the true) x_prior. This does NOT take noise into account.
+        self.y_pred, corr_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, np.diag(self.std_dev_y))
         
+        self.y_pred += v_mean #add mean of the noise. 
+        
+        if True: #This works well
+            
+            # add noise the same way as corr_prior was calculated (Q = std_dev_post @ corr_Q @ std_dev_post), where std_dev_post is the standard deviation of the STATES and not the noise. This means "corr_Q" is not a real correlation matrix either. One potential issue might be that if Q is small (e.g. 1e-8) and standard devitation of the states are large (e.g 1e2), then the corresponding value of Q would be (1e-8=1e2@corr_Q@1e2==>corr_Q=1e-12). If std_dev_post \approx std_dev_Q then this is a great solution. Can perhaps add this check?
+        
+            corr_R, sigmas_y_test = self.correlation_from_covariance(R, sigmas = np.diag(self.std_dev_y))
+            
+            assert (sigmas_y_test == np.diag(self.std_dev_y)).all()
+
+            # print(f"k_corr_R: {np.linalg.cond(corr_R):.1e}")
+            
+            #add process noise (the "correlation" (not a true correlation matrix))
+            corr_y += corr_R
+            
+            #find the true correlation (values between [-1,1]) and the update factor for the standard deviation
+            self.corr_y, std_dev_y_update = self.correlation_from_covariance(corr_y)
+            
+            
+            #Get the prior standard deviation
+            self.std_dev_y = np.diag(std_dev_y_update*np.diag(self.std_dev_y))
+        
+        
+        """
+        End
+        """
+        # #Old part
+        # # add measurement noise
+        # y_pred += v_mean
+        # Py_pred += R 
+        # self.y_pred = y_pred
+        # # self.Py_pred = Py_pred.copy()
+        # self.corr_y, std_dev_y = self.correlation_from_covariance(Py_pred)
+        # self.std_dev_y = np.diag(std_dev_y)
+        # #end of old part
         
 
         # Innovation term of the UKF
-        self.y_res = y - y_pred
-        self.std_dev_y_inv = np.diag([1/sig_y for sig_y in std_dev_y])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
+        self.y_res = y - self.y_pred
+        self.std_dev_y_inv = np.diag([1/sig_y for sig_y in np.diag(self.std_dev_y)])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
         
         #TO DO: implement "smart" way of obtaining corr_xy directly 
         #Obtain the cross_covariance
-        Pxy = self.cross_covariance(
-            self.x_prior, y_pred, self.sigmas_raw_hx, self.sigmas_meas, self.Wc)
-        # self.Pxy = Pxy
-        self.corr_xy = self.correlation_from_cross_covariance(Pxy,
-                                                              np.diag(self.std_dev_prior),
-                                                              std_dev_y)
+        
+        sig_x_norm = np.divide(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
+                               np.diag(self.std_dev_prior).reshape(-1,1))
+        sig_y_norm = np.divide(self.sigmas_meas - self.y_pred.reshape(-1,1),
+                               np.diag(self.std_dev_y).reshape(-1,1))
+        self.corr_xy = self.cross_covariance(sig_x_norm, sig_y_norm, self.Wc_x)
+    
+        # Pxy = self.cross_covariance(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
+        #                             self.sigmas_meas - self.y_pred.reshape(-1,1), self.Wc_x)
+        # # self.Pxy = Pxy
+        # self.corr_xy = self.correlation_from_cross_covariance(Pxy,
+        #                                                       np.diag(self.std_dev_prior),
+        #                                                       np.diag(self.std_dev_y))
+        # assert (self.corr_xy2 == self.corr_xy).all()
         
         #Kalman gain
         self.K = np.linalg.solve(self.corr_y, self.corr_xy.T).T
@@ -785,12 +865,22 @@ class Normalized_UKF_additive_noise(UKFBase):
         # calculate posterior
         self.x_post = self.x_prior + self.std_dev_prior @ self.K @ self.std_dev_y_inv @ self.y_res
         
-        #TO DO: implement "smart" way of obtaining std_dev_post and corr_post directly 
-        P_post = self.std_dev_prior @ (
-            self.corr_prior - self.K @ self.corr_xy.T) @ self.std_dev_prior
+        #obtain posterior correlation and standard deviation
+        self.corr_post = self.corr_prior - self.K @ self.corr_xy.T # this is not the true posterior - it is scaled with std_dev_prior
         
-        self.corr_post, std_dev_post = self.correlation_from_covariance(P_post)
-        self.std_dev_post = np.diag(std_dev_post)
+        #find the true correlation (values between [-1,1]) and the update factor for the standard deviation
+        self.corr_post, std_dev_post_update = self.correlation_from_covariance(self.corr_post)
+        
+        #Get the prior standard deviation
+        self.std_dev_post = np.diag(std_dev_post_update*np.diag(self.std_dev_prior))
+        
+        
+        # #TO DO: implement "smart" way of obtaining std_dev_post and corr_post directly 
+        # P_post = self.std_dev_prior @ (
+        #     self.corr_prior - self.K @ self.corr_xy.T) @ self.std_dev_prior
+        
+        # self.corr_post, std_dev_post = self.correlation_from_covariance(P_post)
+        # self.std_dev_post = np.diag(std_dev_post)
 
 
         
