@@ -566,41 +566,58 @@ class Normalized_UKF_additive_noise(UKFBase):
             self.sigmas_raw_fx, fx, **fx_args)
 
        
-
-        #TO DO: implement "smart" way of obtaining std_dev_prior, corr_prior directly from the UT. Everything below should be updated.
-        # pass the propagated sigmas of the states through the unscented transform to compute prior
+        
+        # "smart" way of obtaining std_dev_prior, corr_prior directly from the UT. First, we assume that the standard deviation of the prior is similar to the standard deviation of the posterior. We can therefore calclulate a "predicted corr_prior". This predicted corr_prior is not a real correlation matrix, since its elements are NOT in the range [-1,1] (typically, they are larger as the uncertainty grows). From the (predicted) corr_prior we calculate a factor for how much the standard deviation of the posterior should be updated, std_dev_prior_update, such that std_dev_prior = std_dev_posterior*std_dev_prior_update
+        
+        # pass the propagated sigmas of the states through the unscented transform to compute the (predicted) corr_prior and (the true) x_prior. This does NOT take noise into account.
         self.x_prior, corr_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x, np.diag(self.std_dev_post))
         
+        self.x_prior += w_mean #add mean of the noise. 
         
+        if True: #This works well
+            
+            # add noise the same way as corr_prior was calculated (Q = std_dev_post @ corr_Q @ std_dev_post), where std_dev_post is the standard deviation of the STATES and not the noise. This means "corr_Q" is not a real correlation matrix either. One potential issue might be that if Q is small (e.g. 1e-8) and standard devitation of the states are large (e.g 1e2), then the corresponding value of Q would be (1e-8=1e2@corr_Q@1e2==>corr_Q=1e-12). If std_dev_post \approx std_dev_Q then this is a great solution. Can perhaps add this check?
         
-        if False: #This works well
             corr_Q, sigmas_post_test = self.correlation_from_covariance(Q, sigmas = np.diag(self.std_dev_post))
             
             assert (sigmas_post_test == np.diag(self.std_dev_post)).all()
+
+            # print(f"k_corr_Q: {np.linalg.cond(corr_Q):.1e}")
             
-            # print(f"corr_prior before Q: {corr_prior}\n\n",
-            #       f"corr_Q: {corr_Q}")
-            
-            print(f"k_corr_Q: {np.linalg.cond(corr_Q):.1e}")
-            
-            #add process noise
-            self.x_prior += w_mean
+            #add process noise (the "correlation" (not a true correlation matrix))
             corr_prior += corr_Q
             
-            
-            # print(f"corr_prior before self: {corr_prior}\n\n")
-            
+            #find the true correlation (values between [-1,1]) and the update factor for the standard deviation
             self.corr_prior, std_dev_prior_update = self.correlation_from_covariance(corr_prior)
             
-            # print(f"self.corr_prior: {self.corr_prior}\n\n",
-            #       f"std_dev_prior_update: {std_dev_prior_update}")
             
+            #Get the prior standard deviation
             self.std_dev_prior = np.diag(std_dev_prior_update*np.diag(self.std_dev_post))
-            
-            # print(f"self.std_dev_post: {self.std_dev_post}\n\n",
-            #       f"self.std_dev_prior: {self.std_dev_prior}\n\n")
         
-        else: #this gives higher condition numbers at this case study
+        else: #this gives higher condition numbers in this case study
+            """
+            The idea here is if std_dev_post > 1 >> Q, then the matrix "corr_Q" may have a larger condition number than Q. We stress that "corr_Q" is NOT an actual covariance matrix - we use standard deviation of the states and not the std_dev of the noise to calculate it.
+            
+            The alternative procedure is then:
+                We want to update std_dev_post @ (corr_prior_est + corr_Q) @ std_dev_post = std_dev_prior @ corr_prior @ std_dev_prior = P_prior
+                
+                But corr_Q matrix is ill-conditioned. Use in stead
+                P_reduced = (corr_prior_est + corr_Q) @ std_dev_post
+                
+                and then std_dev_post @ P_reduced = P_prior
+                
+                The standard deviation of the prior is then calculated as
+                std_dev_prior = sqrt(diag(P_prior)) = (sqrt(diag(std_dev_post))*sqrt(diag(P_reduced))
+                                                       
+               std_dev_prior is a diagonal matrix, so its inverse is easy/cheap to calculate (it is the reciprocal of each element). Can then solve the equation
+               
+               std_dev_post @ P_reduced = std_dev_prior @ corr_prior @ std_dev_prior
+               corr_prior = (std_dev_prior_inv @ std_dev_post) @ (P_reduced @ std_dev_prior_inv)
+               
+               Where the paranthesis are added to split the dot product in two parts which both should have numerical values around +/-1
+                
+            """
+            
             self.corr_prior, self.std_dev_prior = self.get_prior_corr_and_std_dev_after_Q(corr_prior, self.std_dev_post, Q)
         
         
@@ -638,8 +655,8 @@ class Normalized_UKF_additive_noise(UKFBase):
         
         P_reduced = corr_pred @ std_dev + Q_reduced
         
-        print(f"k_Q_red: {np.linalg.cond(Q_reduced):.2e}\n\n",
-              f"k_P_red: {np.linalg.cond(P_reduced):.2e}\n\n")
+        # print(f"k_Q_red: {np.linalg.cond(Q_reduced):.2e}\n\n",
+        #       f"k_P_red: {np.linalg.cond(P_reduced):.2e}\n\n")
         
         std_dev_updated = np.diag(np.sqrt(np.diag(std_dev))
                                   *np.sqrt(np.diag(P_reduced)))
@@ -721,12 +738,6 @@ class Normalized_UKF_additive_noise(UKFBase):
         #Calculate P_sqrt
         corr_sqrt = self.msqrt(self.corr_prior)
         P_sqrt = self.std_dev_prior @ corr_sqrt
-        
-        # ##Check solution is correct - to be deleted
-        # P_calc = self.covariance_from_corr_std_dev(self.corr_prior, self.std_dev_prior)
-        # P_sqrt_calc = self.msqrt(P_calc)
-        # assert (P_sqrt == P_sqrt_calc).all(), f"P_sqrt: {P_sqrt}\nP_sqrt_calc: {P_sqrt_calc}" #T
-        # ###
 
         # recreate sigma points
         (self.sigmas_raw_hx,
