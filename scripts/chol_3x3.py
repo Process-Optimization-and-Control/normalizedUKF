@@ -10,11 +10,11 @@ import numpy as np
 
 
 
-sig1 = 1e8
-sig2 = 1e-8
+sig1 = 1e2
+sig2 = 1e-2
 sig3 = 1e-1
 
-a = 1e-3
+a = 1e-1
 b = 0#1e-1
 c = 1e-1
 
