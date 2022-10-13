@@ -26,7 +26,6 @@ import copy
 # Did some modification to these packages
 from myFilter import UKF
 # from myFilter import sigma_points as ukf_sp
-# from myFilter import UKF_constrained
 
 #Self-written modules
 import sigma_points_classes as spc
@@ -35,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 100 #this is how many times to repeat each iteration
+N = 1 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -43,13 +42,16 @@ kappa_max = np.zeros((3, N)) #for P_post, P_prior and K
 kappa_norm_max = np.zeros((3, N))
 Ni = 0
 rand_seed = 1234
+# rand_seed = 1276
+# rand_seed = 6969
 
 run_ukf = True
 run_ukf_norm = True
 calc_RMSE = True
+calc_condition_number = True
 while Ni < N:
     try:
-        # np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
+        np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
         #%% Import the distributions of the parameters for the fx equations (states)
         #Modes of the dists are used for the true system, and mean of the dists are the parameters for the UKF
         
@@ -57,8 +59,8 @@ while Ni < N:
         par_kf_fx = par_true_fx.copy()
         par_kf_hx = par_true_hx.copy()
         
-       
-        
+        # print(f"{np.linalg.cond(P0):.2e}")
+        Pt = utils_fb.get_P0_Tuveri()
         #%% Define dimensions and initialize arrays
         
         # x0_kf = copy.deepcopy(x0) + np.sqrt(np.diag(P0)) #+ the standard deviation
@@ -111,7 +113,7 @@ while Ni < N:
         args_ode_solver = {}
         # args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
         
-        #%% Define UKF with adaptive Q, R from UT
+        #%% Def standard UKF
         # points = spc.JulierSigmaPoints(dim_x,kappa = 3-dim_x, sqrt_method = sqrt_fn)
         points = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         fx_ukf = lambda x: utils_fb.fx_ukf_ode(utils_fb.ode_model_plant, 
@@ -129,7 +131,7 @@ while Ni < N:
                                     points_x = points, Q = Q_nom, 
                                     R = R_nom)
         
-        #%% Define UKF with adaptive Q, R from LHS/MC
+        #%% Def normalized UKF
         # points_norm = spc.JulierSigmaPoints(dim_x,
         #                                   kappa = 3-dim_x,
         #                                   sqrt_method = sqrt_fn)
@@ -144,7 +146,7 @@ while Ni < N:
         # hx_ukf_norm = lambda x_in: utils_fb.hx(x_in, par_kf_hx.copy())#.reshape(-1,1)
         
         #kf is where Q adapts based on UT of parametric uncertainty
-        kf_norm = UKF.Normalized_UKF_additive_noise(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
+        kf_norm = UKF.Normalized_UKF_additive_noise_v2(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
                                         points_x = points_norm,
                                         Q = Q_nom, R = R_nom)
         # #test predict function       
@@ -184,6 +186,11 @@ while Ni < N:
                        continue
             #Make a new measurement and add measurement noise
             y[:, i] = utils_fb.hx(x_true[:, i], par_true_hx) + v_noise[i, :] 
+            for j in range(dim_y):
+                if y[j,i] < 0:
+                    y[j,i] = eps**2
+            # if y[0,i] < 0:
+                
             
             if not calc_RMSE:
                 # Solve the open loop model prediction, based on the same info as UKF has (no measurement)
@@ -201,17 +208,19 @@ while Ni < N:
             if run_ukf:
                 kf.predict()
                 kf.update(y[:, i])
-                kappa[0, i] = np.linalg.cond(kf.P_post)
-                kappa[1, i] = np.linalg.cond(kf.P_prior)
-                kappa[2, i] = np.linalg.cond(kf.Py_pred)
+                if calc_condition_number:
+                    kappa[0, i] = np.linalg.cond(kf.P_post)
+                    kappa[1, i] = np.linalg.cond(kf.P_prior)
+                    kappa[2, i] = np.linalg.cond(kf.Py_pred)
            
             #Prediction and correction step of normalized UKF. Calculate condition numbers
             if run_ukf_norm:
                 kf_norm.predict()
                 kf_norm.update(y[:, i])
-                kappa_norm[0, i] = np.linalg.cond(kf_norm.corr_post)
-                kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_prior)
-                kappa_norm[2, i] = np.linalg.cond(kf_norm.corr_y)
+                if calc_condition_number:
+                    kappa_norm[0, i] = np.linalg.cond(kf_norm.corr_post)
+                    kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_prior)
+                    kappa_norm[2, i] = np.linalg.cond(kf_norm.corr_y)
 
             # Save the estimates
             x_post[:, i] = kf.x_post
@@ -243,6 +252,7 @@ while Ni < N:
         continue
 
 #%% Plot
+plot_it = False
 plot_it = True
 if plot_it:
     # ylabels = [r"$x_1 [ft]$", r"$x_2 [ft/s]$", r"$x_3 [ft^3$/(lb-$s^2)]$", "$y [ft]$"]#
@@ -302,15 +312,16 @@ if plot_it:
                   frameon = False)      
     plt.tight_layout()
     
-    fig_kappa, ax_kappa = plt.subplots(1, 1)
-    ax_kappa.plot(t, kappa[0,:], label = r"$P_k^+ - UKF$")
-    ax_kappa.plot(t, kappa_norm[0,:], label = r"$\rho_k^+ - UKF_{norm}$")
-    ax_kappa.set_yscale("log")
-    ax_kappa.set_ylabel(r"$\kappa$ [-]")
-    ax_kappa.set_xlabel(r"Time [s]")
-    
-    ax_kappa.legend()
-    plt.tight_layout()
+    if calc_condition_number:
+        fig_kappa, ax_kappa = plt.subplots(1, 1)
+        ax_kappa.plot(t, kappa[0,:], label = r"$P_k^+ - UKF$")
+        ax_kappa.plot(t, kappa_norm[0,:], label = r"$\rho_k^+ - UKF_{norm}$")
+        ax_kappa.set_yscale("log")
+        ax_kappa.set_ylabel(r"$\kappa$ [-]")
+        ax_kappa.set_xlabel(r"Time [s]")
+        
+        ax_kappa.legend()
+        plt.tight_layout()
 
 #%% Violin plot of cost function and condition numbers for selected matrices
 if N >= 5: #only plot this if we have done some iterations
@@ -319,6 +330,25 @@ if N >= 5: #only plot this if we have done some iterations
     
     cost_diff = cost_func_norm - cost_func
     df_j_diff = pd.DataFrame(columns = [cols_x], data = cost_diff.T)
+    
+    df_cost = pd.DataFrame(columns = [cols_x], data = cost_func_norm.T)
+    # df_cost["Filter"] = "sigmaRho"
+    
+    df_cost2 = pd.DataFrame(columns = [cols_x], data = cost_func.T)
+    df_cost2["Filter"] = "Standard"
+    
+    fig_j, ax_j = plt.subplots(3,1)
+    y_label = [r"$x_1$", r"$x_2$", r"$x_3$"]
+    for i in range(dim_x):
+        ax_j[i].scatter(range(N), cost_diff[i,:])
+        ax_j[i].set_ylabel(y_label[i])
+        x_lims = ax_j[i].get_xlim()
+        ax_j[i].plot(x_lims, [0,0])
+        ax_j[i].set_xlim(x_lims)
+    
+    # df_cost = pd.concat([df_cost, df_cost2])
+    # del df_cost2
+    
     # ax_cost = sns.violinplot(df_j_diff)
     # ax_cost.set_ylabel(r"$RMSE_{norm}-RMSE_{UKF}$")
     
@@ -352,17 +382,18 @@ if N >= 5: #only plot this if we have done some iterations
     
     df_kappa = pd.concat([df_kappa, df_kappa2, df_kappa3, df_kappa_norm, df_kappa_norm2, df_kappa_norm3], ignore_index = True)
     
+    del df_kappa2, df_kappa3, df_kappa_norm, df_kappa_norm2, df_kappa_norm3
     
     fig_kappa_hist, ax_kappa_hist = plt.subplots(1,1)
     ax_kappa_hist = sns.stripplot(data = df_kappa, x = "Matrix", y = ylabel_kappa, ax = ax_kappa_hist, hue = "Method")
     ax_kappa_hist.set_yscale("log")
     plt.tight_layout()
     
-    fig_kappa_hist2, ax_kappa_hist2 = plt.subplots(1,1)
-    df_kappa2 = df_kappa.copy()
-    df_kappa2[ylabel_kappa] = np.log(df_kappa2[ylabel_kappa].values)
-    df_kappa2 = df_kappa2.rename(columns = {ylabel_kappa: r"log($\kappa_{max}$)"})
-    ax_kappa_hist2 = sns.stripplot(data = df_kappa2, x = "Matrix", y = r"log($\kappa_{max}$)", ax = ax_kappa_hist2, hue = "Method")
-    plt.tight_layout()
+    # fig_kappa_hist2, ax_kappa_hist2 = plt.subplots(1,1)
+    # df_kappa2 = df_kappa.copy()
+    # df_kappa2[ylabel_kappa] = np.log(df_kappa2[ylabel_kappa].values)
+    # df_kappa2 = df_kappa2.rename(columns = {ylabel_kappa: r"log($\kappa_{max}$)"})
+    # ax_kappa_hist2 = sns.stripplot(data = df_kappa2, x = "Matrix", y = r"log($\kappa_{max}$)", ax = ax_kappa_hist2, hue = "Method")
+    # plt.tight_layout()
     
    

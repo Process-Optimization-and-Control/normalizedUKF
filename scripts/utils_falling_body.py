@@ -6,6 +6,7 @@ Created on Tue Oct 12 13:47:07 2021
 """
 import numpy as np
 import scipy.stats
+import sklearn.datasets
 #Self-written modules
 import sigma_points_classes as spc
 import unscented_transformation as ut
@@ -36,8 +37,19 @@ def ode_model_plant(t, x, w, par):
     return x_dot
 
 def hx(x, par):
+    
+    y2_1 = (par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"]
+    y2_1 = np.max([y2_1, 1e-10])
+    y2_2 = y2_1**par["exp"]
+    y2_3 = par["Pb"]*y2_2
+    
     y = np.array([np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"])),
-                  par["Pb"]*((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])**par["exp"]])
+                  y2_3
+                  ])
+    # y = np.array([np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"])),
+    #               par["Pb"]*(((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])**par["exp"])
+    #               ])
+    # print((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])
     return y
 
 
@@ -67,15 +79,38 @@ def get_literature_values():
     #example 14.2 in "Optimal state estimation" by Dan Simon
     P0 = np.diag([1e6,#[ft^2], altitute, initial covariance matrix for UKF
                 4e6, # [ft^2], horizontal range
-                10 # [?] ballistic coefficient
+                200 # [?] ballistic coefficient
                 ])
     
     P0 = np.diag([1e6,#[ft^2], altitute, initial covariance matrix for UKF
                 4e6, # [ft^2], horizontal range
                 1e-3 # [?] ballistic coefficient
                 ])
+    P0 = np.diag([1e4,#[ft^2], altitute, initial covariance matrix for UKF
+                4e4, # [ft^2], horizontal range
+                1e-3 # [?] ballistic coefficient
+                ])
     
-    # P0 = .5*(P0 + P0.T)
+    # P0=np.array([[ 9.29030400e+08,  5.39003846e+05, -8.07304597e-01],
+    #               [ 5.39003846e+05,  4.64515200e+02, -8.92873834e-04],
+    #               [-8.07304597e-01, -8.92873834e-04,  3.89725026e-09]])
+    # matrixSize = 3 
+    # A = np.random.rand(matrixSize, matrixSize)
+    # cov0 = np.dot(A, A.transpose())
+    
+    
+    # P0 = sklearn.datasets.make_spd_matrix(3)
+    std_dev0 = np.sqrt(np.diag(P0))
+    s0_inv = np.diag([1/si for si in std_dev0])
+    corr_0 = s0_inv @ P0 @ s0_inv
+    # s0 = np.sqrt(np.diag(cov0))
+    # del cov0, s0, s0_inv
+    
+    
+    # corr_0 = np.array([[1., .999, .3],
+    #                     [.999, 1., .2],
+    #                     [.3, .2, 1.]])
+    # std_dev0 = np.sqrt(np.array([5e6, 5e-3, 1e-10]))
     
     
     #Nominal parameter values
@@ -110,12 +145,12 @@ def get_literature_values():
     # Q = np.eye(3)*1e-6
     Q = np.diag([1e-4, 1e-3, 0])
     Q = np.diag([1e3, 1e3, 1e-6])
-    Q = np.diag([1e2, 1e2, 1e-7])
+    # Q = np.diag([1e2, 1e2, 1e-7])
     # Q = np.eye(3)*0.
     
     #Measurement noise
     R = np.diag([10e3, #[ft^2]
-                 1e2]) #[Pa**2]
+                 5e1]) #[Pa**2]
     
     #convert to SI units
     kg_per_lbs = 0.45359237
@@ -128,9 +163,9 @@ def get_literature_values():
     x0[1] *= m_per_ft
     x0[2] *= (m_per_ft**3)/kg_per_lbs
     
-    P0[0, 0] *= (m_per_ft)**2
-    P0[1, 1] *= (m_per_ft)**2
-    P0[2, 2] *= ((m_per_ft**3)/kg_per_lbs)**2
+    std_dev0[0] *= (m_per_ft)
+    std_dev0[1] *= (m_per_ft)
+    std_dev0[2] *= ((m_per_ft**3)/kg_per_lbs)
     
     par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
     par_mean_fx["k"] *= m_per_ft
@@ -145,6 +180,14 @@ def get_literature_values():
     Q[0,0] *= m_per_ft**2 
     Q[1,1] *= m_per_ft**2 
     Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
+    
+    std_dev0 = np.diag(std_dev0)
+    P0 = std_dev0 @ corr_0 @ std_dev0
+    P0 = .5*(P0 + P0.T)
+    
+    #values which look nicer in SI-units
+    Q = np.diag([1e2, 1e2, 1e-8])
+    R[0,0]=1e3
     
     return x0, P0, par_mean_fx, par_mean_hx, Q, R
 
@@ -305,3 +348,23 @@ def get_sigmapoints_and_weights(par_dist):
                                                         var, 
                                                         s)
     return sigmas, w
+
+def get_P0_Tuveri():
+    P0 = np.array([[.1054, -.11, -.0846, .057, -.0898],
+                  [-.11, .1537, .0508, -.070, .0489],
+                  [-.0846, .0508, .1282, -.0267, .0813],
+                  [.057, -.070, -.0267, .0491, -.0657],
+                  [-.0898, .0489, .0813, -.0657, .202]])
+    P0 *=1e-10
+    return P0
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

@@ -9,7 +9,7 @@ from . import unscented_transform
 
 # from copy import deepcopy
 import numpy as np
-# import scipy.linalg
+import scipy.linalg
 # from numba import jit
 # from numba import jitclass          # import the decorator
 # from numba import int32, float32    # import the types
@@ -275,31 +275,24 @@ class UKFBase():
         dim_p = sigmas.shape[0]
         
         
-        #Create sigma_mat = [[s1, s1 ,.., s1],
-        # [s2, s2,...,s2],
-        # [s_p, s_p,..,s_p]]
-        sigma_mat = np.tile(sigmas.reshape(-1,1), dim_p)
-        sigma_cross_mat = np.multiply(sigma_mat, sigma_mat.T)
-        # print(f"sigmas: {sigmas}\n",
-        #       f"sigma_mat: {sigma_mat}\n",
-        #       f"sigma_cross_mat: {sigma_cross_mat}")
+        #Create sigma_cross_mat = [[s1s1, s1s2 ,.., s1sp],
+        # [s2s1, s2s2,...,s2sp],
+        # [sps1, sps2,..,spsp]]
+        sigma_cross_mat = np.outer(sigmas, sigmas)
         corr = np.divide(cov, sigma_cross_mat) #element wise division
         return corr, sigmas
     
     def correlation_from_cross_covariance(self, Pxy, sig_x, sig_y):
-        #Create sigma_mat = [[s1, s1 ,.., s1],
-        # [s2, s2,...,s2],
-        # [s_p, s_p,..,s_p]]
+        #Create sigma_mat = [[sx1sy1,.., sx1syy],
+        # [sx2sy1,...,sx2syy],
+        # [sxxsy1,..,sxxsyy]]
         dim_x = sig_x.shape[0]
         dim_y = sig_y.shape[0]
         assert (dim_x, dim_y) == Pxy.shape
         
-        sig_x_mat = np.tile(sig_x.reshape(-1,1), dim_y) #(dim_x, dim_y)
-        sig_y_mat = np.repeat(sig_y.reshape(1, -1), dim_x, axis = 0) #(dim_x, dim_y)
-        sigma_cross_mat = np.multiply(sig_x_mat, sig_y_mat)
-        # print(f"sigmas: {sigmas}\n",
-        #       f"sigma_mat: {sigma_mat}\n",
-        #       f"sigma_cross_mat: {sigma_cross_mat}")
+        sigma_cross_mat = np.outer(sig_x, sig_y)
+        assert sigma_cross_mat.shape == (dim_x, dim_y) 
+        
         cross_corr = np.divide(Pxy, sigma_cross_mat) #element wise division
         return cross_corr
 
@@ -486,7 +479,8 @@ class UKF_additive_noise(UKFBase):
 
         # Kalman gain
         # solve K@Py_pred = P_xy <=> PY_pred.T @ K.T = P_xy.T
-        self.K = np.linalg.solve(Py_pred.T, Pxy.T).T
+        self.K = scipy.linalg.solve(Py_pred.T, Pxy.T, assume_a = "pos").T
+        # self.K = np.linalg.solve(Py_pred.T, Pxy.T).T
         # self.K = np.linalg.lstsq(Py_pred.T, Pxy.T)[0].T #also an option
         assert self.K.shape == (self._dim_x, self._dim_y)
 
@@ -504,7 +498,7 @@ class Normalized_UKF_additive_noise(UKFBase):
 
         """
         super().__init__(fx, hx, points_x, Q, R, 
-                     w_mean = None, v_mean = None, name=None)
+                     w_mean = w_mean, v_mean = v_mean, name = name)
         
         dim_x = x0.shape[0]
         assert (dim_x, dim_x) == P0.shape #check input
@@ -798,7 +792,7 @@ class Normalized_UKF_additive_noise(UKFBase):
         Start
         """
         # pass the propagated sigmas of the states through the unscented transform to compute the (predicted) corr_prior and (the true) x_prior. This does NOT take noise into account.
-        self.y_pred, corr_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, np.diag(self.std_dev_y))
+        self.y_pred, self.corr_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, np.diag(self.std_dev_y))
         
         self.y_pred += v_mean #add mean of the noise. 
         
@@ -806,17 +800,18 @@ class Normalized_UKF_additive_noise(UKFBase):
             
             # add noise the same way as corr_prior was calculated (Q = std_dev_post @ corr_Q @ std_dev_post), where std_dev_post is the standard deviation of the STATES and not the noise. This means "corr_Q" is not a real correlation matrix either. One potential issue might be that if Q is small (e.g. 1e-8) and standard devitation of the states are large (e.g 1e2), then the corresponding value of Q would be (1e-8=1e2@corr_Q@1e2==>corr_Q=1e-12). If std_dev_post \approx std_dev_Q then this is a great solution. Can perhaps add this check?
         
-            corr_R, sigmas_y_test = self.correlation_from_covariance(R, sigmas = np.diag(self.std_dev_y))
+            self.corr_R, sigmas_y_test = self.correlation_from_covariance(R, sigmas = np.diag(self.std_dev_y))
             
             assert (sigmas_y_test == np.diag(self.std_dev_y)).all()
 
             # print(f"k_corr_R: {np.linalg.cond(corr_R):.1e}")
-            
+            # print(f"corr_y: {self.corr_y}\n",
+            #       f"corr_R: {self.corr_R}")
             #add process noise (the "correlation" (not a true correlation matrix))
-            corr_y += corr_R
+            self.corr_y += self.corr_R
             
             #find the true correlation (values between [-1,1]) and the update factor for the standard deviation
-            self.corr_y, std_dev_y_update = self.correlation_from_covariance(corr_y)
+            self.corr_y, std_dev_y_update = self.correlation_from_covariance(self.corr_y)
             
             
             #Get the prior standard deviation
@@ -826,22 +821,12 @@ class Normalized_UKF_additive_noise(UKFBase):
         """
         End
         """
-        # #Old part
-        # # add measurement noise
-        # y_pred += v_mean
-        # Py_pred += R 
-        # self.y_pred = y_pred
-        # # self.Py_pred = Py_pred.copy()
-        # self.corr_y, std_dev_y = self.correlation_from_covariance(Py_pred)
-        # self.std_dev_y = np.diag(std_dev_y)
-        # #end of old part
         
 
         # Innovation term of the UKF
         self.y_res = y - self.y_pred
         self.std_dev_y_inv = np.diag([1/sig_y for sig_y in np.diag(self.std_dev_y)])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
         
-        #TO DO: implement "smart" way of obtaining corr_xy directly 
         #Obtain the cross_covariance
         
         sig_x_norm = np.divide(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
@@ -849,17 +834,9 @@ class Normalized_UKF_additive_noise(UKFBase):
         sig_y_norm = np.divide(self.sigmas_meas - self.y_pred.reshape(-1,1),
                                np.diag(self.std_dev_y).reshape(-1,1))
         self.corr_xy = self.cross_covariance(sig_x_norm, sig_y_norm, self.Wc_x)
-    
-        # Pxy = self.cross_covariance(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
-        #                             self.sigmas_meas - self.y_pred.reshape(-1,1), self.Wc_x)
-        # # self.Pxy = Pxy
-        # self.corr_xy = self.correlation_from_cross_covariance(Pxy,
-        #                                                       np.diag(self.std_dev_prior),
-        #                                                       np.diag(self.std_dev_y))
-        # assert (self.corr_xy2 == self.corr_xy).all()
         
         #Kalman gain
-        self.K = np.linalg.solve(self.corr_y, self.corr_xy.T).T
+        self.K = scipy.linalg.solve(self.corr_y, self.corr_xy.T, assume_a = "pos").T
         assert self.K.shape == (self._dim_x, self._dim_y)
 
         # calculate posterior
@@ -875,13 +852,162 @@ class Normalized_UKF_additive_noise(UKFBase):
         self.std_dev_post = np.diag(std_dev_post_update*np.diag(self.std_dev_prior))
         
         
-        # #TO DO: implement "smart" way of obtaining std_dev_post and corr_post directly 
-        # P_post = self.std_dev_prior @ (
-        #     self.corr_prior - self.K @ self.corr_xy.T) @ self.std_dev_prior
-        
-        # self.corr_post, std_dev_post = self.correlation_from_covariance(P_post)
-        # self.std_dev_post = np.diag(std_dev_post)
 
 
+class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
+    
+    def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
+                 w_mean = None, v_mean = None, name=None):
+        """
+        Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
+
+        """
         
+        # raise ValueError("Class has not been verified/finished yet")
+        
+        super().__init__(x0, P0, fx, hx, points_x, Q, R, 
+                     w_mean = w_mean, v_mean = v_mean, name = name)
+    def predict(self, UT=None, kwargs_sigma_points={}, fx=None, w_mean = None, Q = None, **fx_args):
+        if fx is None:
+            fx = self.fx
+        
+        if w_mean is None:
+            w_mean = self.w_mean
+        
+        if Q is None:
+            Q = self.Q
+        elif np.isscalar(Q):
+            Q = np.eye(self._dim_w) * Q
+        
+
+        if UT is None:
+            UT = unscented_transform.unscented_transformation_corr_std_dev_v2
+        
+        #calculate the square-root of the covariance matrix by using standard deviations and correlation matrix
+        corr_sqrt = self.msqrt(self.corr_post)
+        P_sqrt = self.std_dev_post @ corr_sqrt
+        
+        # calculate sigma points for given mean and covariance for the states
+        (self.sigmas_raw_fx, self.Wm_x, 
+         self.Wc_x, P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_post, 
+                                                                    self.P_dummy, P_sqrt = P_sqrt, **kwargs_sigma_points)
+
+        # propagate all the sigma points through fx
+        self.sigmas_prop = self.compute_transformed_sigmas(
+            self.sigmas_raw_fx, fx, **fx_args)
+
+        """
+        New part: this should perhaps be in a separate function (it is basically the UT)
+        """
+        
+        self.x_prior, self.corr_prior, self.std_dev_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x, Q)
+        
+        self.x_prior += w_mean #add mean of the noise. 
+        
+    def update(self, y, R=None, v_mean = None, UT=None, hx=None, kwargs_sigma_points={}, **hx_args):
+        """
+        Update the UKF with the given measurements. On return,
+        self.x and self.P contain the new mean and covariance of the filter.
+
+        Parameters
+        ----------
+
+        y : numpy.array of shape (dim_y)
+            measurement vector
+
+        R : numpy.array((dim_y, dim_y)), optional
+            Measurement noise. If provided, overrides self.R for
+            this function call.
+
+        UT : function(sigmas, Wm, Wc, noise_cov), optional
+            Optional function to compute the unscented transform for the sigma
+            points passed through hx. 
+
+        hx : callable h(x, **hx_args), optional
+            Measurement function. If not provided, the default
+            function passed in during construction will be used.
+
+        **hx_args : keyword argument
+            arguments to be passed into h(x) after x -> h(x, **hx_args)
+        """
+
+        if y is None:
+            self.y = np.array([[None]*self._dim_y]).T
+            self.x_post = self.x_prior.copy()
+            self.corr_post = self.corr_prior.copy()
+            self.std_dev_post = self.std_dev_prior.copy()
+            return
+
+        if hx is None:
+            hx = self.hx
+
+        if UT is None:
+            UT = unscented_transform.unscented_transformation_corr_std_dev_v2
+
+        if v_mean is None:
+            v_mean = self.v_mean
+            
+        if R is None:
+            R = self.R
+        elif np.isscalar(R):
+            R = np.eye(self._dim_y) * R
+        
+        #Calculate P_sqrt
+        corr_sqrt = self.msqrt(self.corr_prior)
+        P_sqrt = self.std_dev_prior @ corr_sqrt
+
+        # recreate sigma points
+        (self.sigmas_raw_hx,
+         self.Wm_x, self.Wc_x,
+         P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_prior,
+                                                       self.P_dummy, P_sqrt = P_sqrt,
+                                                       **kwargs_sigma_points
+                                                       )
+
+        # send sigma points through measurement equation
+        self.sigmas_meas = self.compute_transformed_sigmas(
+            self.sigmas_raw_hx, hx, **hx_args)
+
+        
+        """
+        Start, new part
+        """
+        # pass the propagated sigmas of the states through the unscented transform to compute the predicted measurement, corr_y and std_dev_y
+        self.y_pred, self.corr_y, self.std_dev_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, R)
+        
+        self.y_pred += v_mean #add mean of the noise. 
+        
+        """
+        End, new part
+        """
+        
+        
+
+        # Innovation term of the UKF
+        self.y_res = y - self.y_pred
+        self.std_dev_y_inv = np.diag([1/sig_y for sig_y in np.diag(self.std_dev_y)])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
+        
+        #Obtain the cross_covariance
+        
+        sig_x_norm = np.divide(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
+                               np.diag(self.std_dev_prior).reshape(-1,1))
+        sig_y_norm = np.divide(self.sigmas_meas - self.y_pred.reshape(-1,1),
+                               np.diag(self.std_dev_y).reshape(-1,1))
+        self.corr_xy = self.cross_covariance(sig_x_norm, sig_y_norm, self.Wc_x)
+        
+        #Kalman gain
+        self.K = scipy.linalg.solve(self.corr_y, self.corr_xy.T, assume_a = "pos").T
+        assert self.K.shape == (self._dim_x, self._dim_y)
+
+        # calculate posterior
+        self.x_post = self.x_prior + self.std_dev_prior @ self.K @ self.std_dev_y_inv @ self.y_res
+        
+        #obtain posterior correlation and standard deviation
+        self.corr_post = self.corr_prior - self.K @ self.corr_xy.T # this is not the true posterior - it is scaled with std_dev_prior
+        
+        #find the true correlation (values between [-1,1]) and the update factor for the standard deviation
+        self.corr_post, std_dev_post_update = self.correlation_from_covariance(self.corr_post)
+        
+        #Get the prior standard deviation
+        self.std_dev_post = np.diag(std_dev_post_update*np.diag(self.std_dev_prior))
         

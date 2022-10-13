@@ -209,3 +209,75 @@ def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev):
     sigmas_norm = np.divide(sigmas, std_dev.reshape(-1,1))
     corr_y = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas_norm.T)])
     return mean, corr_y
+
+def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None):
+    """
+    Calculates mean and correlation of sigma points by the unscented transform. The standard deviation is found first by explicitly calculating the diagonal of the resulting covariance matrix. Then, the sigma-points are scaled such that the resulting matrix from the UT is actually a correlation matrix
+
+    Parameters
+    ----------
+    sigmas : TYPE np.ndarray(n, dim_sigma)
+        DESCRIPTION. Array of sigma points. Each column contains a sigma point
+    wm : TYPE np.array(dim_sigma,)
+        DESCRIPTION. Weights for the mean calculation of each sigma point.
+    wc : TYPE np.array(dim_sigma,)
+        DESCRIPTION. Weights for the covariance calculation of each sigma point.
+    noise_mat : TYPE np.array(n,n)
+        DESCRIPTION. Noise matrix. If None is supplied, it is set to zeros.
+    
+
+    Returns
+    -------
+    mean : TYPE np.array(dim_y,)
+        DESCRIPTION. Mean value of Y=f(X), X is a random variable (RV) 
+    corr_y : TYPE np.array(dim_y,dim_y)
+        DESCRIPTION. Estimated correlation matrix, corr(Y) where Y=f(X)
+
+    """
+    try:
+        (n, dim_sigma) = sigmas.shape
+    except ValueError: #sigmas is 1D
+        sigmas = np.atleast_2d(sigmas)
+        (n, dim_sigma) = sigmas.shape 
+        assert dim_sigma == wm.shape[0], "Dimensions are wrong"
+    
+    if noise_mat is None:
+        noise_mat = np.zeros((n, n))
+    
+    # print(f"sigmas: {sigmas.shape}\n",
+    #       f"wm: {wm.shape}\n",
+    #       f"wc: {wc.shape}\n",
+    #       f"Q: {noise_mat.shape}\n",
+    #       )
+    
+    mean = sigmas @ wm
+    
+    #will only work with residuals between sigmas and mean, so "recalculate" sigmas (it is a new variable - but save memory cost by calling it the same as sigmas)
+    sigmas = sigmas - mean.reshape(-1, 1)
+    
+    sigmas_w = np.multiply(wc, sigmas)
+    
+    #Calculate diagonal elements of covariance matrix + noise mat and then take the square-root
+    std_dev = np.sqrt(
+        [sigmas_wi@sigmas_i + noise_ii 
+         for sigmas_wi, sigmas_i, noise_ii 
+         in zip(sigmas_w, sigmas, np.diag(noise_mat))
+         ])
+    
+    
+    #normalize sigma-points and noise-matrix ==> we calculate correlations and not covariance
+    sigmas_norm = np.divide(sigmas, std_dev.reshape(-1,1))
+    sigmas_w_norm = np.divide(sigmas_w, std_dev.reshape(-1,1))
+    
+    std_dev_mat = np.outer(std_dev, std_dev) #matrix required to get
+    noise_mat_norm = np.divide(noise_mat, std_dev_mat)
+    
+    corr_y = sigmas_w_norm @ sigmas_norm.T + noise_mat_norm
+    
+    #check solution
+    # print(np.diag(corr_y) - np.ones(mean.shape[0]))
+    # if not np.linalg.norm(np.diag(corr_y) - np.ones(mean.shape[0])) < 1e-12:
+    #     print(np.diag(corr_y) - np.ones(mean.shape[0]))
+    #     print(np.diag(corr_y))
+    
+    return mean, corr_y, np.diag(std_dev)
