@@ -34,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 10 #this is how many times to repeat each iteration
+N = 1 #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -56,7 +56,7 @@ Ni = 0
 rand_seed = 6969
 # rand_seed += 269
 
-run_ukf = True
+run_ukf = False
 run_ukf_norm = True
 calc_RMSE = True
 calc_condition_number = True
@@ -118,9 +118,9 @@ while Ni < N:
         #%% Square-root method
         # sqrt_fn = np.linalg.cholesky
         # sqrt_fn = scipy.linalg.cholesky
-        # sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True)
+        sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True)
         
-        sqrt_fn = scipy.linalg.sqrtm #principal matrix square root
+        # sqrt_fn = scipy.linalg.sqrtm #principal matrix square root
         
         args_ode_solver = {}
         # args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
@@ -146,12 +146,21 @@ while Ni < N:
         # points_norm = spc.JulierSigmaPoints(dim_x,
         #                                   kappa = 3-dim_x,
         #                                   sqrt_method = sqrt_fn)
+        
+        corr_post_lim = .95
+        corr_prior_lim = copy.copy(corr_post_lim)
+        corr_y_lim = np.inf
+        
         points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         
         #kf is where Q adapts based on UT of parametric uncertainty
         kf_norm = UKF.Normalized_UKF_additive_noise_v2(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
                                         points_x = points_norm,
-                                        Q = Q_nom, R = R_nom)
+                                        Q = Q_nom, R = R_nom,
+                                        corr_post_lim = corr_post_lim,
+                                        corr_prior_lim = corr_prior_lim,
+                                        corr_y_lim = corr_y_lim
+                                        )
         
         #%% Create noise
         # w_plant = np.zeros((dim_t, dim_x))
@@ -436,7 +445,7 @@ for i in range(dim_x):
 ax_kt[-1].set_xlabel("Time [s]")
 
 #custom legend
-from matplotlib.lines import Line2D
+# from matplotlib.lines import Line2D
 custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
                 matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3)
                 ]
@@ -452,7 +461,6 @@ kappa_norm_np_mean = np.nanmean(kappa_norm_np, axis = 1)
 if save_corr:
     fig_corr_post, ax_corr_post = plt.subplots(dim_x, dim_x, sharex = True, sharey = True, layout = "constrained")
     
-    corr_limit = .95
     
     plt_prior_post_same = True
     if plt_prior_post_same:
@@ -468,8 +476,8 @@ if save_corr:
                 xlims = ax_corr_post[r,c].get_xlim()
                 ax_corr_post[r, c].plot(xlims, [0,0], "k", linewidth = .5) #zero
                 #upper and lower correlation limits
-                ax_corr_post[r, c].plot(xlims, [corr_limit,corr_limit], "r", linewidth = .5)
-                ax_corr_post[r, c].plot(xlims, [-corr_limit,-corr_limit], "r", linewidth = .5)
+                ax_corr_post[r, c].plot(xlims, [corr_post_lim,corr_post_lim], "r", linewidth = .5)
+                ax_corr_post[r, c].plot(xlims, [-corr_post_lim,-corr_post_lim], "r", linewidth = .5)
                 ax_corr_post[r,c].set_xlim(xlims)
     
     #set limits on scales etc
@@ -477,20 +485,36 @@ if save_corr:
         ax_corr_post[r,c].set_ylim([-1,1])
         for c in range(r):
             ax_corr_post[r,c].set_ylim([-1,1])
-    fig_corr_post.suptitle(r"$\rho^+$-trajectories, $N_{MC}$ = " + f"{N}")
+            
+    for c in range(dim_x):
+        ax_corr_post[-1,c].set_xlabel("Time [s]")
+    # fig_corr_post.suptitle(r"$\rho^+$-trajectories, $N_{MC}$ = " + f"{N}")
+    # fig_corr_post.suptitle(r"$\rho$-trajectories, $N_{MC}$ = " + f"{N}")
+    
+    #set \rho[r,c] as a textbox
+    from matplotlib.offsetbox import AnchoredText
+    for r in range(dim_x):
+        for c in range(dim_x):
+            text_box = AnchoredText(r"$\rho$" + f"[{r+1},{c+1}]", frameon=True, loc="upper left", pad=0.5)
+            plt.setp(text_box.patch, facecolor='white', alpha=0.5)
+            ax_corr_post[r,c].add_artist(text_box)
+            
+            
+    fig_corr_post.suptitle(r"correlation-trajectories, $N_{MC}$ = " + f"{N}")
     
     #add legend
     custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3),
                     matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
                     matplotlib.lines.Line2D([0], [0], color='r', lw=3)
                     ]
-    ax_corr_post[1,0].legend(custom_lines, [r"$\rho^+$", r"$\rho^-$", r"$\rho_{lim}=\pm$ " + f"{corr_limit}" ])
-            
+    ax_corr_post[-1,0].legend(custom_lines, [r"$\rho^+$", r"$\rho^-$", r"$\rho_{lim}=\pm$ " + f"{corr_post_lim}" ])
+    
+    
+                
 #%% corr_y plot
 if save_corr:
     fig_corr_y, ax_corr_y = plt.subplots(dim_y, dim_y, sharex = True, sharey = True, layout = "constrained")
     
-    corr_limit = .95
     for Ni in range(N):
         for r in range(dim_y):
             for c in range(r):
@@ -500,15 +524,15 @@ if save_corr:
                 xlims = ax_corr_y[r,c].get_xlim()
                 ax_corr_y[r, c].plot(xlims, [0,0], "k", linewidth = .5) #zero
                 #upper and lower correlation limits
-                ax_corr_y[r, c].plot(xlims, [corr_limit,corr_limit], "r", linewidth = .5)
-                ax_corr_y[r, c].plot(xlims, [-corr_limit,-corr_limit], "r", linewidth = .5)
+                ax_corr_y[r, c].plot(xlims, [corr_y_lim,corr_y_lim], "r", linewidth = .5)
+                ax_corr_y[r, c].plot(xlims, [-corr_y_lim,-corr_y_lim], "r", linewidth = .5)
                 ax_corr_y[r,c].set_xlim(xlims)
     
     #set limits on scales etc
     for r in range(dim_y):
-        ax_corr_y[r,c].set_ylim([-1,1])
-        for c in range(r):
-            ax_corr_y[r,c].set_ylim([-1,1])
+        ax_corr_y[r,0].set_ylim([-1,1])
+        # for c in range(r):
+        #     ax_corr_y[r,c].set_ylim([-1,1])
     fig_corr_y.suptitle(r"$\rho_y$-trajectories, $N_{MC}$ = " + f"{N}")
             
             

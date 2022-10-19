@@ -131,7 +131,7 @@ import numpy as np
 
 #     return (x, P)
 
-def unscented_transformation_gut(sigmas, wm, wc):
+def unscented_transformation_gut(sigmas, wm, wc, symmetrization = True):
     """
     Calculates mean and covariance of sigma points by the unscented transform.
 
@@ -143,6 +143,8 @@ def unscented_transformation_gut(sigmas, wm, wc):
         DESCRIPTION. Weights for the mean calculation of each sigma point.
     wc : TYPE np.array(dim_sigma,)
         DESCRIPTION. Weights for the covariance calculation of each sigma point.
+    symmetrization : TYPE bool, optional
+        DESCRIPTION. Default is true. Symmetrize covariance/correlation matrix afterwards with Py = .5*(Py+Py.T)
     
 
     Returns
@@ -167,9 +169,12 @@ def unscented_transformation_gut(sigmas, wm, wc):
     
     Py = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas.T)])
     
+    if symmetrization:
+        Py = .5*(Py + Py.T)
+    
     return mean, Py
 
-def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev):
+def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev, symmetrization = True):
     """
     Calculates mean and "correlation" of sigma points by the unscented transform. This is not the true correlation, as we use a "guess" for the standard deviation (we use e.g. the prior standard deviation of x when we want to calculate the posterior correlation. The true posterior correlation must use the posterior standard deviation). The update of standard deviation/correlation is handled outside this function 
 
@@ -183,7 +188,9 @@ def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev):
         DESCRIPTION. Weights for the covariance calculation of each sigma point.
     std_dev : TYPE np.array(n,)
         DESCRIPTION. A priori/estimated standard deviation of the covariance 
-    
+    symmetrization : TYPE bool, optional
+        DESCRIPTION. Default is true. Symmetrize covariance/correlation matrix afterwards with corr_y = .5*(corr_y+corr_y.T)
+        
 
     Returns
     -------
@@ -208,9 +215,12 @@ def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev):
     #normalize ==> we calculate correlations and not covariance
     sigmas_norm = np.divide(sigmas, std_dev.reshape(-1,1))
     corr_y = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas_norm.T)])
+    
+    if symmetrization:
+        corr_y = .5*(corr_y + corr_y.T)
     return mean, corr_y
 
-def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None):
+def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None, symmetrization = True):
     """
     Calculates mean and correlation of sigma points by the unscented transform. The standard deviation is found first by explicitly calculating the diagonal of the resulting covariance matrix. Then, the sigma-points are scaled such that the resulting matrix from the UT is actually a correlation matrix
 
@@ -224,7 +234,8 @@ def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None):
         DESCRIPTION. Weights for the covariance calculation of each sigma point.
     noise_mat : TYPE np.array(n,n)
         DESCRIPTION. Noise matrix. If None is supplied, it is set to zeros.
-    
+    symmetrization : TYPE bool, optional
+        DESCRIPTION. Default is true. Symmetrize covariance/correlation matrix afterwards with corr_y = .5*(corr_y+corr_y.T)
 
     Returns
     -------
@@ -279,5 +290,6 @@ def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None):
     # if not np.linalg.norm(np.diag(corr_y) - np.ones(mean.shape[0])) < 1e-12:
     #     print(np.diag(corr_y) - np.ones(mean.shape[0]))
     #     print(np.diag(corr_y))
-    
+    if symmetrization:
+        corr_y = .5*(corr_y + corr_y.T)
     return mean, corr_y, np.diag(std_dev)

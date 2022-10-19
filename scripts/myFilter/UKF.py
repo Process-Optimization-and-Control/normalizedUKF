@@ -857,7 +857,9 @@ class Normalized_UKF_additive_noise(UKFBase):
 class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
     
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
-                 w_mean = None, v_mean = None, name=None):
+                 w_mean = None, v_mean = None, 
+                 corr_post_lim = np.inf, corr_prior_lim = np.inf, 
+                 corr_y_lim = np.inf, name=None):
         """
         Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
 
@@ -867,6 +869,47 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         
         super().__init__(x0, P0, fx, hx, points_x, Q, R, 
                      w_mean = w_mean, v_mean = v_mean, name = name)
+        
+        #whether or not we should check limits for correlation
+        if corr_post_lim is np.inf:
+            self.check_corr_post_lim = False
+        else:
+            self.check_corr_post_lim = True
+        
+        if corr_prior_lim is np.inf:
+            self.check_corr_prior_lim = False
+        else:
+            self.check_corr_prior_lim = True
+       
+        if corr_y_lim is np.inf:
+            self.check_corr_y_lim = False
+        else:
+            self.check_corr_y_lim = True
+        
+        #set limits for correlation
+        if np.isscalar(corr_post_lim):
+            assert ~np.isnan(corr_post_lim), "np.nan invalid input"
+            if corr_post_lim < 0:
+                corr_post_lim = -corr_post_lim
+            corr_post_lim = np.array([-corr_post_lim, corr_post_lim])
+        
+        if np.isscalar(corr_prior_lim):
+            assert ~np.isnan(corr_prior_lim), "np.nan invalid input"
+            if corr_prior_lim < 0:
+                corr_prior_lim = -corr_prior_lim
+            corr_prior_lim = np.array([-corr_prior_lim, corr_prior_lim])
+        
+        if np.isscalar(corr_y_lim):
+            assert ~np.isnan(corr_y_lim), "np.nan invalid input"
+            if corr_y_lim < 0:
+                corr_y_lim = -corr_y_lim
+            corr_y_lim = np.array([-corr_y_lim, corr_y_lim])
+        
+        self.corr_post_lim = corr_post_lim
+        self.corr_prior_lim = corr_prior_lim
+        self.corr_y_lim = corr_y_lim
+        
+    
     def predict(self, UT=None, kwargs_sigma_points={}, fx=None, w_mean = None, Q = None, **fx_args):
         if fx is None:
             fx = self.fx
@@ -903,6 +946,10 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         self.x_prior, self.corr_prior, self.std_dev_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x, Q)
         
         self.x_prior += w_mean #add mean of the noise. 
+        
+        if self.check_corr_prior_lim:
+            self.corr_prior = self.corr_limit(self.corr_prior,
+                                              self.corr_prior_lim)
         
     def update(self, y, R=None, v_mean = None, UT=None, hx=None, kwargs_sigma_points={}, **hx_args):
         """
@@ -968,19 +1015,15 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         self.sigmas_meas = self.compute_transformed_sigmas(
             self.sigmas_raw_hx, hx, **hx_args)
 
-        
-        """
-        Start, new part
-        """
         # pass the propagated sigmas of the states through the unscented transform to compute the predicted measurement, corr_y and std_dev_y
         self.y_pred, self.corr_y, self.std_dev_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, R)
         
         self.y_pred += v_mean #add mean of the noise. 
         
-        """
-        End, new part
-        """
-        
+        #check if we should add constraints to the correlation term
+        if self.check_corr_y_lim:
+            self.corr_y = self.corr_limit(self.corr_y,
+                                              self.corr_y_lim)
         
 
         # Innovation term of the UKF
@@ -1010,4 +1053,50 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         
         #Get the prior standard deviation
         self.std_dev_post = np.diag(std_dev_post_update*np.diag(self.std_dev_prior))
+        
+        #check if we should add constraints to the correlation term
+        if self.check_corr_post_lim:
+            self.corr_post = self.corr_limit(self.corr_post,
+                                              self.corr_post_lim)
+        
+        
+    def corr_limit(self, corr, corr_lim, cross_corr = False):
+        #input: correlation matrix. Check wheter elements are above or below limit and if they are, set the correlation to that limit
+        
+        ##Try to do it fast by using numpy functions
+        # idx = np.tril_indices_from(corr, k = -1)
+        # idx_lower = (corr[idx] < corr_lim[0])
+        # idx_higher = (corr[idx] > corr_lim[1])
+        # if idx_lower.any():
+        #     idx_l = np.nonzero(idx_lower)[0]
+        #     idx_ut = np.triu_indices_from(corr, k = 1)
+        #     corr[idx[idx_l]] = corr_lim[0]
+                
+            
+        # if idx_higher.any():
+        #     print("high")
+        
+        #correct way, can be speeded up
+        dim_x, dim_y = corr.shape
+        if not cross_corr:
+            assert dim_x == dim_y, "Dimension mismatch for normal correlation matrix"
+            for r in range(1,dim_x):
+                for c in range(r):
+                    if corr[r,c] < corr_lim[0]:
+                        corr[r,c] = corr_lim[0]
+                        corr[c,r] = corr_lim[0]
+                    if corr[r,c] > corr_lim[1]:
+                        corr[r,c] = corr_lim[1]
+                        corr[c,r] = corr_lim[1]
+        else:
+            for r in range(dim_x):
+                for c in range(dim_y):
+                    if corr[r,c] < corr_lim[0]:
+                        corr[r,c] = corr_lim[0]
+                        corr[c,r] = corr_lim[0]
+                    if corr[r,c] > corr_lim[1]:
+                        corr[r,c] = corr_lim[1]
+                        corr[c,r] = corr_lim[1]
+        # print(corr)
+        return corr
         

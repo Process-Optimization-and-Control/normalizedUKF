@@ -203,7 +203,3 @@ def compute_performance_index_valappil(x_kf, x_ol, x_true, RMSE = True):
 
     
     
-    
-    
-    
-    
