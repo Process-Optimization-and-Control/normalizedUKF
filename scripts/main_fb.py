@@ -40,18 +40,31 @@ cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
 kappa_max = np.zeros((3, N)) #for P_post, P_prior and K
 kappa_norm_max = np.zeros((3, N))
+
+#save trajectories for condition number
 kappa_trajectories = [[] for i in range(N)]
 kappa_norm_trajectories = [[] for i in range(N)]
+
+#save trajectories for std_dev and correlation
+corr_trajectories = [[] for i in range(N)]
+corr_prior_trajectories = [[] for i in range(N)]
+corr_y_trajectories = [[] for i in range(N)]
 
 Ni = 0
 # rand_seed = 1234
 # rand_seed = 1276
 rand_seed = 6969
+# rand_seed += 269
 
 run_ukf = True
 run_ukf_norm = True
 calc_RMSE = True
 calc_condition_number = True
+save_corr = True #save correlation matrix trajectory
+
+#define colors for plots
+color_std = '#1f77b4'
+color_norm = '#ff7f0e'
 while Ni < N:
     try:
         np.random.seed(rand_seed) #to get reproducible results. rand_seed updated in every iteration
@@ -88,6 +101,11 @@ while Ni < N:
         kappa = np.zeros((3, dim_t)) #P_post, P_prior and Py_pred
         kappa_norm = np.zeros((3,dim_t)) #corr_post, corr_prior and corr_y
         
+        #correlation
+        corr_post = np.zeros((dim_x, dim_x, dim_t))
+        corr_prior = np.zeros((dim_x, dim_x, dim_t))
+        corr_y = np.zeros((dim_y, dim_y, dim_t))
+        
         x_true[:, 0] = x0
         x_ol[:, 0] = x0_kf.copy()
         x_post[:, 0] = x0_kf.copy()
@@ -98,11 +116,11 @@ while Ni < N:
         t_span = (t[0],t[1])
         
         #%% Square-root method
-        sqrt_fn = np.linalg.cholesky
+        # sqrt_fn = np.linalg.cholesky
         # sqrt_fn = scipy.linalg.cholesky
         # sqrt_fn = lambda P: scipy.linalg.cholesky(P, lower = True)
         
-        # sqrt_fn = scipy.linalg.sqrtm #principal matrix square root
+        sqrt_fn = scipy.linalg.sqrtm #principal matrix square root
         
         args_ode_solver = {}
         # args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
@@ -148,6 +166,11 @@ while Ni < N:
         kappa[:, 0] = np.array([np.linalg.cond(kf.P_post), np.nan, np.nan]) #prior and measurement is not defined for time 0
         kappa_norm[:, 0] = np.array([np.linalg.cond(kf_norm.corr_post), np.nan, np.nan])
         
+        if save_corr:
+            corr_post[:,:,0] = kf_norm.corr_post
+            corr_prior[:,:,0] = kf_norm.corr_post #dummy
+            corr_y[:,:,0] = np.eye(dim_y)
+        
         eps = 1e-5 # lowest limit for x3
         #%% Simulate the plant and UKF
         for i in range(1,dim_t):
@@ -168,7 +191,8 @@ while Ni < N:
                    if w_plant[i+1,-1] < 0:
                        w_plant[i+1,-1] = -w_plant[i+1,-1]
                except IndexError: #we are already at the last time step, don't need to do sth
-                       continue
+                   pass    
+                   
             #Make a new measurement and add measurement noise
             y[:, i] = utils_fb.hx(x_true[:, i], par_true_hx) + v_noise[i, :] 
             for j in range(dim_y):
@@ -206,6 +230,10 @@ while Ni < N:
                     kappa_norm[0, i] = np.linalg.cond(kf_norm.corr_post)
                     kappa_norm[1, i] = np.linalg.cond(kf_norm.corr_prior)
                     kappa_norm[2, i] = np.linalg.cond(kf_norm.corr_y)
+                if save_corr:
+                    corr_post[:, :, i] = kf_norm.corr_post
+                    corr_prior[:, :, i] = kf_norm.corr_prior
+                    corr_y[:, :, i] = kf_norm.corr_y
 
             # Save the estimates
             x_post[:, i] = kf.x_post
@@ -224,6 +252,11 @@ while Ni < N:
         kappa_norm_max[:, Ni] = np.max(kappa_norm, axis = 1)
         kappa_trajectories[Ni] = kappa
         kappa_norm_trajectories[Ni] = kappa_norm
+        
+        if save_corr:
+            corr_trajectories[Ni] = corr_post
+            corr_prior_trajectories[Ni] = corr_prior
+            corr_y_trajectories[Ni] = corr_y
     
         Ni += 1
         rand_seed += 1
@@ -231,6 +264,16 @@ while Ni < N:
             print(f"End of iteration {Ni}/{N}")
     except BaseException as e:
         # print(e)
+        
+        #save some information
+        kappa_max[:, Ni] = np.max(kappa, axis = 1)
+        kappa_norm_max[:, Ni] = np.max(kappa_norm, axis = 1)
+        kappa_trajectories[Ni] = kappa
+        kappa_norm_trajectories[Ni] = kappa_norm
+        corr_trajectories[Ni] = corr_post
+        corr_prior_trajectories[Ni] = corr_prior
+        corr_y_trajectories[Ni] = corr_y
+        
         raise e
         continue
 
@@ -295,18 +338,8 @@ if plot_it:
     ax1[0].legend(ncol = 2,
                   frameon = True)      
     
-    if calc_condition_number:
-        fig_kappa, ax_kappa = plt.subplots(1, 1, layout = "constrained")
-        l_std = ax_kappa.plot(t, kappa[0,:], label = r"$P_k^+: UKF$")
-        l_norm = ax_kappa.plot(t, kappa_norm[0,:], label = r"$\rho_k^+: \sigma\rho-UKF$")
-        ax_kappa.set_yscale("log")
-        ax_kappa.set_ylabel(r"$\kappa$ [-]")
-        ax_kappa.set_xlabel(r"Time [s]")
+
         
-        ax_kappa.legend()
-        
-        color_std = l_std[0].get_color()
-        color_norm = l_norm[0].get_color()
 
 #%% Violin plot of cost function and condition numbers for selected matrices
 if N >= 5: #only plot this if we have done some iterations
@@ -381,22 +414,101 @@ if N >= 5: #only plot this if we have done some iterations
     # ax_kappa_hist2 = sns.stripplot(data = df_kappa2, x = "Matrix", y = r"log($\kappa_{max}$)", ax = ax_kappa_hist2, hue = "Method")
     # plt.tight_layout()
     
-   #%% condition number trajectories - Monte Carlo
-    fig_kt, ax_kt = plt.subplots(3, 1, sharex = True, layout = "constrained")
-    ylabels = [r"$\kappa(P^+,\rho^+)$", r"$\kappa(P^-,\rho^-)$", r"$\kappa(P_y, \rho_y)$"]
-    plt_kwargs = dict(linewidth = .5)
-    plt_kwargs = dict()
+#%% condition number trajectories - Monte Carlo
+fig_kt, ax_kt = plt.subplots(3, 1, sharex = True, layout = "constrained")
+ylabels = [r"$\kappa(P^+,\rho^+)$", r"$\kappa(P^-,\rho^-)$", r"$\kappa(P_y, \rho_y)$"]
+plt_kwargs = dict(linewidth = .7)
+# plt_kwargs = dict()
+
+for i in range(dim_x):
+    for Ni in range(N):
+        if (kappa_trajectories[Ni] < 1e-1).any():
+            print(Ni)
+        # if Ni == 1: #plot with label
+        #     ax_kt[i].plot(t, kappa_trajectories[Ni][i,:], label = "UKF", color = color_std, **plt_kwargs)
+        #     ax_kt[i].plot(t, kappa_norm_trajectories[Ni][i,:], label = r"$\sigma\rho-UKF$", color = color_norm, **plt_kwargs)
+        # else: #without label
+        ax_kt[i].plot(t, kappa_trajectories[Ni][i,:], color = color_std, **plt_kwargs)
+        ax_kt[i].plot(t, kappa_norm_trajectories[Ni][i,:], color = color_norm, **plt_kwargs)
+            
+    ax_kt[i].set_ylabel(ylabels[i])
+    ax_kt[i].set_yscale("log")
+ax_kt[-1].set_xlabel("Time [s]")
+
+#custom legend
+from matplotlib.lines import Line2D
+custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
+                matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3)
+                ]
+ax_kt[0].legend(custom_lines, ["UKF", r"$\sigma\rho-UKF$"])
+
+#compute mean values
+kappa_np = np.hstack(kappa_trajectories)
+kappa_np_mean = np.nanmean(kappa_np, axis = 1)
+kappa_norm_np = np.hstack(kappa_norm_trajectories)
+kappa_norm_np_mean = np.nanmean(kappa_norm_np, axis = 1)
+   
+#%% corr plot
+if save_corr:
+    fig_corr_post, ax_corr_post = plt.subplots(dim_x, dim_x, sharex = True, sharey = True, layout = "constrained")
     
-    for i in range(dim_x):
-        for Ni in range(N):
-            if Ni == 1: #plot with label
-                ax_kt[i].plot(t, kappa_trajectories[Ni][i,:], label = "UKF", color = color_std, **plt_kwargs)
-                ax_kt[i].plot(t, kappa_norm_trajectories[Ni][i,:], label = r"$\sigma\rho-UKF$", color = color_norm, **plt_kwargs)
-            else: #without label
-                ax_kt[i].plot(t, kappa_trajectories[Ni][i,:], color = color_std, **plt_kwargs)
-                ax_kt[i].plot(t, kappa_norm_trajectories[Ni][i,:], color = color_norm, **plt_kwargs)
+    corr_limit = .95
+    
+    plt_prior_post_same = True
+    if plt_prior_post_same:
+        pass
+    
+    for Ni in range(N):
+        for r in range(dim_x):
+            for c in range(r):
+                ax_corr_post[r, c].plot(t, corr_trajectories[Ni][r, c, :], color = color_norm, **plt_kwargs)
+                ax_corr_post[r, c].plot(t, corr_prior_trajectories[Ni][r, c, :], color = color_std, **plt_kwargs)
                 
-        ax_kt[i].set_ylabel(ylabels[i])
-        ax_kt[i].set_yscale("log")
-    ax_kt[-1].set_xlabel("Time [s]")
-    ax_kt[0].legend()
+                #plot some limits
+                xlims = ax_corr_post[r,c].get_xlim()
+                ax_corr_post[r, c].plot(xlims, [0,0], "k", linewidth = .5) #zero
+                #upper and lower correlation limits
+                ax_corr_post[r, c].plot(xlims, [corr_limit,corr_limit], "r", linewidth = .5)
+                ax_corr_post[r, c].plot(xlims, [-corr_limit,-corr_limit], "r", linewidth = .5)
+                ax_corr_post[r,c].set_xlim(xlims)
+    
+    #set limits on scales etc
+    for r in range(dim_x):
+        ax_corr_post[r,c].set_ylim([-1,1])
+        for c in range(r):
+            ax_corr_post[r,c].set_ylim([-1,1])
+    fig_corr_post.suptitle(r"$\rho^+$-trajectories, $N_{MC}$ = " + f"{N}")
+    
+    #add legend
+    custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3),
+                    matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
+                    matplotlib.lines.Line2D([0], [0], color='r', lw=3)
+                    ]
+    ax_corr_post[1,0].legend(custom_lines, [r"$\rho^+$", r"$\rho^-$", r"$\rho_{lim}=\pm$ " + f"{corr_limit}" ])
+            
+#%% corr_y plot
+if save_corr:
+    fig_corr_y, ax_corr_y = plt.subplots(dim_y, dim_y, sharex = True, sharey = True, layout = "constrained")
+    
+    corr_limit = .95
+    for Ni in range(N):
+        for r in range(dim_y):
+            for c in range(r):
+                ax_corr_y[r, c].plot(t, corr_y_trajectories[Ni][r, c, :], color = color_norm, **plt_kwargs)
+                
+                #plot some limits
+                xlims = ax_corr_y[r,c].get_xlim()
+                ax_corr_y[r, c].plot(xlims, [0,0], "k", linewidth = .5) #zero
+                #upper and lower correlation limits
+                ax_corr_y[r, c].plot(xlims, [corr_limit,corr_limit], "r", linewidth = .5)
+                ax_corr_y[r, c].plot(xlims, [-corr_limit,-corr_limit], "r", linewidth = .5)
+                ax_corr_y[r,c].set_xlim(xlims)
+    
+    #set limits on scales etc
+    for r in range(dim_y):
+        ax_corr_y[r,c].set_ylim([-1,1])
+        for c in range(r):
+            ax_corr_y[r,c].set_ylim([-1,1])
+    fig_corr_y.suptitle(r"$\rho_y$-trajectories, $N_{MC}$ = " + f"{N}")
+            
+            
