@@ -859,7 +859,7 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
                  w_mean = None, v_mean = None, 
                  corr_post_lim = np.inf, corr_prior_lim = np.inf, 
-                 corr_y_lim = np.inf, name=None):
+                 corr_y_lim = np.inf, corr_xy_lim = np.inf, name=None):
         """
         Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
 
@@ -885,6 +885,11 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
             self.check_corr_y_lim = False
         else:
             self.check_corr_y_lim = True
+       
+        if corr_xy_lim is np.inf:
+            self.check_corr_xy_lim = False
+        else:
+            self.check_corr_xy_lim = True
         
         #set limits for correlation
         if np.isscalar(corr_post_lim):
@@ -905,9 +910,17 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
                 corr_y_lim = -corr_y_lim
             corr_y_lim = np.array([-corr_y_lim, corr_y_lim])
         
+        
+        if np.isscalar(corr_xy_lim):
+            assert ~np.isnan(corr_xy_lim), "np.nan invalid input"
+            if corr_xy_lim < 0:
+                corr_xy_lim = -corr_xy_lim
+            corr_xy_lim = np.array([-corr_xy_lim, corr_xy_lim])
+        
         self.corr_post_lim = corr_post_lim
         self.corr_prior_lim = corr_prior_lim
         self.corr_y_lim = corr_y_lim
+        self.corr_xy_lim = corr_xy_lim
         
     
     def predict(self, UT=None, kwargs_sigma_points={}, fx=None, w_mean = None, Q = None, **fx_args):
@@ -1038,6 +1051,10 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
                                np.diag(self.std_dev_y).reshape(-1,1))
         self.corr_xy = self.cross_covariance(sig_x_norm, sig_y_norm, self.Wc_x)
         
+        #check if we should add constraints to the cross-correlation term
+        if self.check_corr_xy_lim:
+            self.corr_xy = self.corr_limit(self.corr_xy,
+                                              self.corr_xy_lim, cross_corr = True)
         #Kalman gain
         self.K = scipy.linalg.solve(self.corr_y, self.corr_xy.T, assume_a = "pos").T
         assert self.K.shape == (self._dim_x, self._dim_y)
@@ -1079,6 +1096,7 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         #correct way, can be speeded up
         dim_x, dim_y = corr.shape
         if not cross_corr:
+            #symmetrical matrix - check only lower triangle and change matrix values two places
             assert dim_x == dim_y, "Dimension mismatch for normal correlation matrix"
             for r in range(1,dim_x):
                 for c in range(r):
@@ -1089,14 +1107,13 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
                         corr[r,c] = corr_lim[1]
                         corr[c,r] = corr_lim[1]
         else:
+            #NOT symmetrical matrix - check whole matrix and change only one limit
             for r in range(dim_x):
                 for c in range(dim_y):
                     if corr[r,c] < corr_lim[0]:
                         corr[r,c] = corr_lim[0]
-                        corr[c,r] = corr_lim[0]
                     if corr[r,c] > corr_lim[1]:
                         corr[r,c] = corr_lim[1]
-                        corr[c,r] = corr_lim[1]
         # print(corr)
         return corr
         

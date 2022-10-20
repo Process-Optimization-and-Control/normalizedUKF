@@ -34,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = 1 #this is how many times to repeat each iteration
+N = int(1e3) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -49,18 +49,28 @@ kappa_norm_trajectories = [[] for i in range(N)]
 corr_trajectories = [[] for i in range(N)]
 corr_prior_trajectories = [[] for i in range(N)]
 corr_y_trajectories = [[] for i in range(N)]
+corr_xy_trajectories = [[] for i in range(N)]
+std_dev_x_post_trajectories = [[] for i in range(N)]
+std_dev_x_prior_trajectories = [[] for i in range(N)]
+std_dev_y_trajectories = [[] for i in range(N)]
 
 Ni = 0
 # rand_seed = 1234
 # rand_seed = 1276
 rand_seed = 6969
 # rand_seed += 269
+rand_seed_div = [7695, 7278] #list of simulations which diverge
+# rand_seed = rand_seed_div[1]
 
 run_ukf = False
 run_ukf_norm = True
 calc_RMSE = True
 calc_condition_number = True
 save_corr = True #save correlation matrix trajectory
+
+diverged_sim = []
+diverged_sim_norm = []
+crashed_sim = []
 
 #define colors for plots
 color_std = '#1f77b4'
@@ -95,7 +105,7 @@ while Ni < N:
         x_post = np.zeros((dim_x, dim_t))
         x_post_norm = np.zeros((dim_x, dim_t))
         P_post = np.zeros((dim_x, dim_t))
-        P_post_norm = np.zeros((dim_x, dim_t))
+        # P_post_norm = np.zeros((dim_x, dim_t))
         
         #condition numbers
         kappa = np.zeros((3, dim_t)) #P_post, P_prior and Py_pred
@@ -105,13 +115,20 @@ while Ni < N:
         corr_post = np.zeros((dim_x, dim_x, dim_t))
         corr_prior = np.zeros((dim_x, dim_x, dim_t))
         corr_y = np.zeros((dim_y, dim_y, dim_t))
+        corr_xy = np.zeros((dim_x, dim_y, dim_t))
+        
+        #standard deviation
+        std_dev_x_post = np.zeros((dim_x, dim_t))
+        std_dev_x_prior = np.zeros((dim_x, dim_t))
+        std_dev_y = np.zeros((dim_y, dim_t))
         
         x_true[:, 0] = x0
         x_ol[:, 0] = x0_kf.copy()
         x_post[:, 0] = x0_kf.copy()
         x_post_norm[:, 0] = x0_kf.copy()
         P_post[:, 0] = np.diag(P0)
-        P_post_norm[:, 0] = np.diag(P0)
+        std_dev_x_post[:, 0] = np.sqrt(np.diag(P0))
+        std_dev_x_prior[:, 0] = np.sqrt(np.diag(P0))
         
         t_span = (t[0],t[1])
         
@@ -147,9 +164,11 @@ while Ni < N:
         #                                   kappa = 3-dim_x,
         #                                   sqrt_method = sqrt_fn)
         
-        corr_post_lim = .95
+        corr_post_lim = np.inf
         corr_prior_lim = copy.copy(corr_post_lim)
-        corr_y_lim = np.inf
+        corr_y_lim = np.inf#.97
+        corr_xy_lim = np.inf
+        # corr_xy_lim = copy.copy(corr_y_lim)
         
         points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         
@@ -159,7 +178,8 @@ while Ni < N:
                                         Q = Q_nom, R = R_nom,
                                         corr_post_lim = corr_post_lim,
                                         corr_prior_lim = corr_prior_lim,
-                                        corr_y_lim = corr_y_lim
+                                        corr_y_lim = corr_y_lim,
+                                        corr_xy_lim = corr_xy_lim
                                         )
         
         #%% Create noise
@@ -174,6 +194,7 @@ while Ni < N:
         
         kappa[:, 0] = np.array([np.linalg.cond(kf.P_post), np.nan, np.nan]) #prior and measurement is not defined for time 0
         kappa_norm[:, 0] = np.array([np.linalg.cond(kf_norm.corr_post), np.nan, np.nan])
+        std_dev_y[:, 0] = np.nan
         
         if save_corr:
             corr_post[:,:,0] = kf_norm.corr_post
@@ -248,7 +269,9 @@ while Ni < N:
             x_post[:, i] = kf.x_post
             x_post_norm[:, i] = kf_norm.x_post
             P_post[:, i] = np.diag(kf.P_post)
-            P_post_norm[:, i] = np.diag(np.square(kf_norm.std_dev_post))
+            std_dev_x_post[:, i] = np.diag(kf_norm.std_dev_post)
+            std_dev_x_prior[:, i] = np.diag(kf_norm.std_dev_prior)
+            std_dev_y[:, i] = np.diag(kf_norm.std_dev_y)
             
         y[:, 0] = np.nan #the 1st measurement is not real, just for programming convenience
         
@@ -262,10 +285,25 @@ while Ni < N:
         kappa_trajectories[Ni] = kappa
         kappa_norm_trajectories[Ni] = kappa_norm
         
+        #standard deviations
+        std_dev_x_post_trajectories[Ni] = std_dev_x_post
+        std_dev_x_prior_trajectories[Ni] = std_dev_x_prior
+        std_dev_y_trajectories[Ni] = std_dev_y
+        
         if save_corr:
             corr_trajectories[Ni] = corr_post
             corr_prior_trajectories[Ni] = corr_prior
             corr_y_trajectories[Ni] = corr_y
+            
+            
+        #check for divergence in the simulation
+        x_post_max = x_post.max(axis = 1)
+        x_post_norm_max = x_post_norm.max(axis = 1)
+        # std_dev_post_max = std_dev_x_post.max(axis = 1)
+        if (x_post_norm_max > [1e7, 1e3, 1e1]).any():
+            diverged_sim_norm.append(rand_seed)
+        if (x_post_max > [1e7, 1e3, 1e1]).any():
+            diverged_sim.append(rand_seed)
     
         Ni += 1
         rand_seed += 1
@@ -283,10 +321,17 @@ while Ni < N:
         corr_prior_trajectories[Ni] = corr_prior
         corr_y_trajectories[Ni] = corr_y
         
+        crashed_sim.append(rand_seed)
+        
         raise e
         continue
 
-#%% Plot
+print(f"# crashed sim: {len(crashed_sim)}\n",
+      f"# diverged sim, std: {len(diverged_sim)}\n",
+      f"# diverged sim, norm: {len(diverged_sim_norm)}")
+
+
+#%% Plot single trajectory
 plot_it = False
 plot_it = True
 if plot_it:
@@ -324,13 +369,13 @@ if plot_it:
             #Normalized UKF
             if run_ukf_norm:
                 ax1[i].fill_between(t, 
-                                    x_post_norm[i, :] + 2*np.sqrt(P_post_norm[i,:]),
-                                    x_post_norm[i, :] - 2*np.sqrt(P_post_norm[i,:]),
+                                    x_post_norm[i, :] + 2*std_dev_x_post[i, :],
+                                    x_post_norm[i, :] - 2*std_dev_x_post[i, :],
                                     **kwargs_fill,
                                     color = l_post_norm.get_color())
                 ax1[i].fill_between(t, 
-                                    x_post_norm[i, :] + 1*np.sqrt(P_post_norm[i,:]),
-                                    x_post_norm[i, :] - 1*np.sqrt(P_post_norm[i,:]),
+                                    x_post_norm[i, :] + 1*std_dev_x_post[i, :],
+                                    x_post_norm[i, :] - 1*std_dev_x_post[i, :],
                                     **kwargs_fill,
                                     color = l_post_norm.get_color())
             
@@ -347,8 +392,37 @@ if plot_it:
     ax1[0].legend(ncol = 2,
                   frameon = True)      
     
-
-        
+#%% std_dev_y
+plt_kwargs = dict(linewidth = .7)
+if plot_it:
+    fig_sy, ax_sy = plt.subplots(dim_y, 1, sharex = True, layout = "constrained")
+    
+    for Ni in range(N):
+        for i in range(dim_y):
+            ax_sy[i].plot(t, std_dev_y_trajectories[Ni][i,:], color = color_std, **plt_kwargs)
+    ax_sy[0].set_ylabel(r"$\sigma_{y_1} [m]$")
+    ax_sy[1].set_ylabel(r"$\sigma_{y_2} [Pa]$")
+    ax_sy[1].set_xlabel(r"$t$ [s]")
+            
+#%% std_dev_x_post/prior
+if plot_it:
+    fig_sx, ax_sx = plt.subplots(dim_x, 1, sharex = True, layout = "constrained")
+    
+    for Ni in range(N):
+        for i in range(dim_x):
+            ax_sx[i].plot(t, std_dev_x_post_trajectories[Ni][i,:], color = color_std, **plt_kwargs)
+            ax_sx[i].plot(t, std_dev_x_prior_trajectories[Ni][i,:], color = color_norm, **plt_kwargs)
+    
+    ax_sx[0].set_ylabel(r"$\sigma_{x_1} [m]$")
+    ax_sx[1].set_ylabel(r"$\sigma_{x_2} [m/s]$")
+    ax_sx[2].set_ylabel(r"$\sigma_{x_3} [*]$")
+    ax_sx[-1].set_xlabel(r"$t$ [s]")
+    
+    #add legend
+    custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
+                    matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3)
+                    ]
+    ax_sx[0].legend(custom_lines, [r"$\sigma^+$", r"$\sigma^-$"])
 
 #%% Violin plot of cost function and condition numbers for selected matrices
 if N >= 5: #only plot this if we have done some iterations
@@ -426,12 +500,11 @@ if N >= 5: #only plot this if we have done some iterations
 #%% condition number trajectories - Monte Carlo
 fig_kt, ax_kt = plt.subplots(3, 1, sharex = True, layout = "constrained")
 ylabels = [r"$\kappa(P^+,\rho^+)$", r"$\kappa(P^-,\rho^-)$", r"$\kappa(P_y, \rho_y)$"]
-plt_kwargs = dict(linewidth = .7)
 # plt_kwargs = dict()
 
 for i in range(dim_x):
     for Ni in range(N):
-        if (kappa_trajectories[Ni] < 1e-1).any():
+        if ((kappa_trajectories[Ni] < 1e-1).any() and run_ukf):
             print(Ni)
         # if Ni == 1: #plot with label
         #     ax_kt[i].plot(t, kappa_trajectories[Ni][i,:], label = "UKF", color = color_std, **plt_kwargs)
@@ -461,6 +534,13 @@ kappa_norm_np_mean = np.nanmean(kappa_norm_np, axis = 1)
 if save_corr:
     fig_corr_post, ax_corr_post = plt.subplots(dim_x, dim_x, sharex = True, sharey = True, layout = "constrained")
     
+    #remove redundant axes
+    for r in range(dim_x):
+        for c in range(r, dim_x):
+            if r == c:
+                pass
+            else:
+                ax_corr_post[r,c].remove()
     
     plt_prior_post_same = True
     if plt_prior_post_same:
@@ -507,7 +587,7 @@ if save_corr:
                     matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
                     matplotlib.lines.Line2D([0], [0], color='r', lw=3)
                     ]
-    ax_corr_post[-1,0].legend(custom_lines, [r"$\rho^+$", r"$\rho^-$", r"$\rho_{lim}=\pm$ " + f"{corr_post_lim}" ])
+    ax_corr_post[0,0].legend(custom_lines, [r"$\rho^+$", r"$\rho^-$", r"$\rho_{lim}=\pm$ " + f"{corr_post_lim}" ])
     
     
                 
@@ -515,6 +595,14 @@ if save_corr:
 if save_corr:
     fig_corr_y, ax_corr_y = plt.subplots(dim_y, dim_y, sharex = True, sharey = True, layout = "constrained")
     
+    #remove redundant axes
+    for r in range(dim_y):
+        for c in range(r, dim_y):
+            if r == c:
+                pass
+            else:
+                ax_corr_y[r,c].remove()
+                
     for Ni in range(N):
         for r in range(dim_y):
             for c in range(r):
@@ -533,6 +621,7 @@ if save_corr:
         ax_corr_y[r,0].set_ylim([-1,1])
         # for c in range(r):
         #     ax_corr_y[r,c].set_ylim([-1,1])
+        
     fig_corr_y.suptitle(r"$\rho_y$-trajectories, $N_{MC}$ = " + f"{N}")
             
             
