@@ -34,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = int(1e3) #this is how many times to repeat each iteration
+N = int(1) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -62,8 +62,8 @@ rand_seed = 6969
 rand_seed_div = [7695, 7278] #list of simulations which diverge
 # rand_seed = rand_seed_div[1]
 
-run_ukf = False
-run_ukf_norm = True
+run_ukf = True
+run_ukf_norm = False
 calc_RMSE = True
 calc_condition_number = True
 save_corr = True #save correlation matrix trajectory
@@ -164,7 +164,7 @@ while Ni < N:
         #                                   kappa = 3-dim_x,
         #                                   sqrt_method = sqrt_fn)
         
-        corr_post_lim = np.inf
+        corr_post_lim = 0.95
         corr_prior_lim = copy.copy(corr_post_lim)
         corr_y_lim = np.inf#.97
         corr_xy_lim = np.inf
@@ -322,8 +322,8 @@ while Ni < N:
         corr_y_trajectories[Ni] = corr_y
         
         crashed_sim.append(rand_seed)
-        
-        raise e
+        rand_seed += 1
+        # raise e
         continue
 
 print(f"# crashed sim: {len(crashed_sim)}\n",
