@@ -34,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = int(1) #this is how many times to repeat each iteration
+N = int(1e2) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -63,7 +63,7 @@ rand_seed_div = [7695, 7278] #list of simulations which diverge
 # rand_seed = rand_seed_div[1]
 
 run_ukf = True
-run_ukf_norm = False
+run_ukf_norm = True
 calc_RMSE = True
 calc_condition_number = True
 save_corr = True #save correlation matrix trajectory
@@ -164,7 +164,8 @@ while Ni < N:
         #                                   kappa = 3-dim_x,
         #                                   sqrt_method = sqrt_fn)
         
-        corr_post_lim = 0.95
+        # corr_post_lim = 0.95
+        corr_post_lim = np.inf
         corr_prior_lim = copy.copy(corr_post_lim)
         corr_y_lim = np.inf#.97
         corr_xy_lim = np.inf
@@ -344,9 +345,9 @@ if plot_it:
         ax1[i].plot(t, x_true[i, :], label = "True")
         # ax1[i].plot([np.nan, np.nan], [np.nan, np.nan], color='w', alpha=0, label=' ')
         if run_ukf:
-            l_post = ax1[i].plot(t, x_post[i, :], label = r"$UKF$")[0]
+            l_post = ax1[i].plot(t, x_post[i, :], label = r"UKF")[0]
         if run_ukf_norm:
-            l_post_norm = ax1[i].plot(t, x_post_norm[i, :], label = r"$\sigma\rho-UKF$")[0]
+            l_post_norm = ax1[i].plot(t, x_post_norm[i, :], label = "NUKF")[0]
             # l_post_norm = ax1[i].plot(t, x_post_norm[i, :], label = r"$UKF_{norm}$")[0]
         if not calc_RMSE:
             ax1[i].plot(t, x_ol[i, :], label = "OL")
@@ -522,7 +523,7 @@ ax_kt[-1].set_xlabel("Time [s]")
 custom_lines = [matplotlib.lines.Line2D([0], [0], color=color_std, lw=3),
                 matplotlib.lines.Line2D([0], [0], color=color_norm, lw=3)
                 ]
-ax_kt[0].legend(custom_lines, ["UKF", r"$\sigma\rho-UKF$"])
+ax_kt[0].legend(custom_lines, ["UKF", "NUKF"])
 
 #compute mean values
 kappa_np = np.hstack(kappa_trajectories)
