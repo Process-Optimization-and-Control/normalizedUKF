@@ -167,8 +167,9 @@ def unscented_transformation_gut(sigmas, wm, wc, symmetrization = True):
     #will only work with residuals between sigmas and mean, so "recalculate" sigmas (it is a new variable - but save memory cost by calling it the same as sigmas)
     sigmas = sigmas - mean.reshape(-1, 1)
     
-    Py = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas.T)])
-    
+    # Py = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas.T)])
+    Py = (wc*sigmas) @ sigmas.T
+
     if symmetrization:
         Py = .5*(Py + Py.T)
     
@@ -176,6 +177,8 @@ def unscented_transformation_gut(sigmas, wm, wc, symmetrization = True):
 
 def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev, symmetrization = True):
     """
+    NB: Not used in the paper!
+    
     Calculates mean and "correlation" of sigma points by the unscented transform. This is not the true correlation, as we use a "guess" for the standard deviation (we use e.g. the prior standard deviation of x when we want to calculate the posterior correlation. The true posterior correlation must use the posterior standard deviation). The update of standard deviation/correlation is handled outside this function 
 
     Parameters
@@ -214,15 +217,18 @@ def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev, symmetrizatio
     
     #normalize ==> we calculate correlations and not covariance
     sigmas_norm = np.divide(sigmas, std_dev.reshape(-1,1))
-    corr_y = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas_norm.T)])
+    # corr_y = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas_norm.T)])
+    
+    corr_y = (wc*sigmas_norm) @ sigmas_norm.T
+    
     
     if symmetrization:
         corr_y = .5*(corr_y + corr_y.T)
     return mean, corr_y
 
-def unscented_transformation_corr_std_dev_v2(sigmas, wm, wc, noise_mat = None, symmetrization = True):
+def normalized_unscented_transformation_additive_noise(sigmas, wm, wc, noise_mat = None, symmetrization = True):
     """
-    Calculates mean and correlation of sigma points by the unscented transform. The standard deviation is found first by explicitly calculating the diagonal of the resulting covariance matrix. Then, the sigma-points are scaled such that the resulting matrix from the UT is actually a correlation matrix
+    The Normalized Unscented Transformation (NUT): Calculates mean, standard deviation and correlation of sigma points by the unscented transform. The standard deviation is found first by explicitly calculating the diagonal of the resulting covariance matrix. Then, the sigma-points are scaled such that the resulting matrix from the UT is actually a correlation matrix
 
     Parameters
     ----------

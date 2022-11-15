@@ -34,7 +34,7 @@ import utils_falling_body as utils_fb
 
 
 #%% For running the sim N times
-N = int(1e2) #this is how many times to repeat each iteration
+N = int(10) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -174,7 +174,7 @@ while Ni < N:
         points_norm = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         
         #kf is where Q adapts based on UT of parametric uncertainty
-        kf_norm = UKF.Normalized_UKF_additive_noise_v2(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
+        kf_norm = UKF.Normalized_UKF_additive_noise_corr_lim(x0 = x_post_norm[:, 0], P0 = P0, fx = fx_ukf, hx = hx_ukf,
                                         points_x = points_norm,
                                         Q = Q_nom, R = R_nom,
                                         corr_post_lim = corr_post_lim,
@@ -324,7 +324,7 @@ while Ni < N:
         
         crashed_sim.append(rand_seed)
         rand_seed += 1
-        # raise e
+        raise e
         continue
 
 print(f"# crashed sim: {len(crashed_sim)}\n",

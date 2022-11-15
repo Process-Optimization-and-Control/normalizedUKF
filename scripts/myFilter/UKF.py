@@ -28,12 +28,12 @@ class UKFBase():
     Parameters
     ----------
 
-    dim_x : int
-        Number of state variables for the filter.
+    dim_w : int
+        Process noise dimension.
 
 
-    dim_y : int
-        Number of of measurements
+    dim_v : int
+        Measurement noise dimension
 
 
     hx : function(x,**hx_args)
@@ -43,33 +43,21 @@ class UKFBase():
     fx : function(x,**fx_args)
         Propagation of states from current time step to the next.
 
-    points : class
+    points_x : class
         Class which computes the sigma points and weights for a UKF
         algorithm. You can vary the UKF implementation by changing this
         class. 
 
-    sqrt_fn : callable(ndarray), default=scipy.linalg.sqrtm
+    msqrt : callable(ndarray), default=scipy.linalg.sqrtm
         Defines how we compute the square root of a matrix, which has
-        no unique answer. Principal matrix square root is the default choice. Typically the alternative is Cholesky decomposition. Different choices affect how the sigma points
-        are arranged relative to the eigenvectors of the covariance matrix. Daid et al recommends principal matrix square root
+        no unique answer. Uses the same square-root as points_x. Alternatives are principal matrix square-root and Cholesky decomposition. Different choices affect how the sigma points
+        are arranged relative to the eigenvectors of the covariance matrix. Daid et al recommends principal matrix square root, others (Julier, Grewal) recommends Cholesky.
 
 
 
 
     Attributes
     ----------
-
-    x_prior : numpy.array(dim_x)
-        Prior (predicted) state estimate. 
-
-    P_prior : numpy.array(dim_x, dim_x)
-        Prior (predicted) state covariance matrix. .
-
-    x_post : numpy.array(dim_x)
-        Posterior (updated) state estimate. .
-
-    P_post : numpy.array(dim_x, dim_x)
-        Posterior (updated) state covariance matrix. .
 
     R : numpy.array(dim_y, dim_y)
         measurement noise matrix
@@ -92,14 +80,13 @@ class UKFBase():
         Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
 
         """
-        # dim_x = x0.shape[0]
+        #dimensions
         dim_w = Q.shape[0]
         dim_v = R.shape[0]
         Q = np.atleast_2d(Q)
         R = np.atleast_2d(R)
         
         # check inputs
-        # assert ((dim_x, dim_x) == P0.shape)
         assert ((dim_w, dim_w) == Q.shape)
         assert ((dim_v, dim_v) == R.shape)
         assert (Q == Q.T).all() #symmtrical
@@ -113,37 +100,18 @@ class UKFBase():
 
         self._dim_w = dim_w
         self._dim_v = dim_v
-        # self.x_prior = np.zeros((dim_x,))
-        # self.P_prior = np.eye(dim_x)
-        # self.x_post = x0
-        # self.P_post = P0
         self.w_mean = w_mean
         self.Q = Q
         self.v_mean = v_mean
         self.R = R
-        # self._dim_x = dim_x
-        # self._dim_y = dim_y
+        
+        #save functions etc
         self.points_fn_x = points_x
         self._num_sigmas_x = points_x.num_sigma_points()
         self.hx = hx
         self.fx = fx
         self.msqrt = points_x.sqrt #use the same square-root function as the sigma-points
         self._name = name  # object name, handy when printing from within class
-
-        # # create sigma-points
-        # self.sigmas_raw_fx = np.zeros((self._dim_x, self._num_sigmas_x))
-        
-        # # sigma-points propagated through fx to form prior distribution
-        # self.sigmas_prop = np.zeros((self._dim_x, self._num_sigmas_x))
-        
-        # # sigma-points based on prior distribution
-        # self.sigmas_raw_hx = np.zeros((self._dim_x, self._num_sigmas_x))
-        
-        # # sigma-points propagated through measurement equation. Form posterior distribution
-        # self.sigmas_meas = np.zeros((self._dim_y, self._num_sigmas_x))
-
-        # self.y_res = np.zeros((dim_y, 1))           # residual
-        # self.y = np.array([[None]*dim_y]).T  # measurement
 
     def compute_transformed_sigmas(self, sigmas_in, func, **func_args):
         """
@@ -167,53 +135,6 @@ class UKFBase():
         sigmas_out = map(func, sigmas_in.T)
         sigmas_out = np.array(list(sigmas_out)).T
         return sigmas_out
-
-    # def cross_covariance(self, x_mean, y_mean, sigmas_x, sigmas_y, W_c):
-    #     """
-    #     Cross-covariance between two probability distribution x,y
-
-    #     Parameters
-    #     ----------
-    #     x_mean : TYPE np.array(dim_x,)
-    #         DESCRIPTION. Mean of the distribution x
-    #     y_mean : TYPE np.array(dim_y,)
-    #         DESCRIPTION. Mean of the distribution y
-    #     sigmas_x : TYPE np.array((dim_x, dim_sigmas))
-    #         DESCRIPTION. Sigma-points created from the x-distribution
-    #     sigmas_y : TYPE np.array((dim_y, dim_sigmas))
-    #         DESCRIPTION. Sigma-points created from the y-distribution
-    #     W_c : TYPE np.array(dim_sigmas,)
-    #         DESCRIPTION. Weights to compute the covariance
-
-    #     Returns
-    #     -------
-    #     P_xy : TYPE np.array((dim_x, dim_y))
-    #         DESCRIPTION. Cross-covariance between x and y
-
-    #     """
-    #     try:
-    #         (dim_x, dim_sigmas_x) = sigmas_x.shape
-    #     except ValueError:  # sigmas_x is 1D
-    #         sigmas_x = np.atleast_2d(sigmas_x)
-    #         (dim_x, dim_sigmas_x) = sigmas_x.shape
-    #         assert dim_sigmas_x == W_c.shape[0], "Dimensions are wrong"
-    #     try:
-    #         (dim_y, dim_sigmas_y) = sigmas_y.shape
-    #     except ValueError:  # sigmas_y is 1D
-    #         sigmas_y = np.atleast_2d(sigmas_y)
-    #         (dim_y, dim_sigmas_y) = sigmas_y.shape
-    #         assert dim_sigmas_y == dim_sigmas_x, "Dimensions are wrong"
-    #     # dim_x, dim_sigmas_x = sigmas_x.shape
-    #     # dim_y, dim_sigmas_y = sigmas_y.shape
-    #     # assert dim_sigmas_x == dim_sigmas_y, f"dim_sigmas_x != dim_sigmas_y: {dim_sigmas_x} != {dim_sigmas_y}"
-        
-    #     #Calculate sigmas around the mean
-    #     sigmas_x = sigmas_x - x_mean.reshape(-1, 1)
-    #     sigmas_y = sigmas_y - y_mean.reshape(-1, 1)
-        
-    #     P_xy = sum([Wc_i*np.outer(sig_x,sig_y) for Wc_i, sig_x, sig_y in zip(W_c, sigmas_x.T, sigmas_y.T)])
-    #     assert (dim_x, dim_y) == P_xy.shape
-    #     return P_xy
 
     def cross_covariance(self, sigmas_x, sigmas_y, W_c):
         """
@@ -247,7 +168,8 @@ class UKFBase():
             (dim_y, dim_sigmas_y) = sigmas_y.shape
             assert dim_sigmas_y == dim_sigmas_x, "Dimensions are wrong"
         
-        #Calculate cross-covariance
+        #NB: could/should be changed to matrix product
+        #Calculate cross-covariance -
         P_xy = sum([Wc_i*np.outer(sig_x,sig_y) for Wc_i, sig_x, sig_y in zip(W_c, sigmas_x.T, sigmas_y.T)])
         assert (dim_x, dim_y) == P_xy.shape
         return P_xy
@@ -378,7 +300,6 @@ class UKF_additive_noise(UKFBase):
             Q = self.Q
         elif np.isscalar(Q):
             Q = np.eye(self._dim_x) * Q
-        
 
         if UT is None:
             UT = unscented_transform.unscented_transformation_gut
@@ -390,8 +311,6 @@ class UKF_additive_noise(UKFBase):
         # propagate all the sigma points through fx
         self.sigmas_prop = self.compute_transformed_sigmas(
             self.sigmas_raw_fx, fx, **fx_args)
-
-       
 
         # pass the propagated sigmas of the states (not the augmented states) through the unscented transform to compute prior
         self.x_prior, self.P_prior = UT(
@@ -415,6 +334,8 @@ class UKF_additive_noise(UKFBase):
         R : numpy.array((dim_y, dim_y)), optional
             Measurement noise. If provided, overrides self.R for
             this function call.
+        v_mean : numpy.array((dim_y,)), optional
+            Mean of measurement noise. If provided, it is added to self.y_pred
 
         UT : function(sigmas, Wm, Wc, noise_cov), optional
             Optional function to compute the unscented transform for the sigma
@@ -489,12 +410,14 @@ class UKF_additive_noise(UKFBase):
         self.P_post = self.P_prior - self.K @ Py_pred @ self.K.T
 
 
-class Normalized_UKF_additive_noise(UKFBase):
-    
+class Normalized_UKF_additive_noise_old_version(UKFBase):
+    """
+    NUKF with additive noise. NB: this is not the implementation in the paper. We do not use the Normalized Unscented Transformation (NUT) here
+    """
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
                  w_mean = None, v_mean = None, name=None):
         """
-        Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
+        Create a normalized Kalman filter. IMPORTANT: Additive white noise is assumed!
 
         """
         super().__init__(fx, hx, points_x, Q, R, 
@@ -542,32 +465,8 @@ class Normalized_UKF_additive_noise(UKFBase):
 
     def predict(self, UT=None, kwargs_sigma_points={}, fx=None, w_mean = None, Q = None, **fx_args):
         r"""
-        Performs the predict step of the UKF. On return, self.x_prior and
-        self.P_prior contain the predicted state (x) and covariance (P). '
+        Performs the predict step of the UKF.
 
-        Important: this MUST be called before update() is called for the first
-        time.
-        
-        
-        Solves the equation
-        wk = fx(x, p) - fx(x_post, E[p])
-        fx(x,p) = fx(x_post, E[p]) + wk
-
-        Parameters
-        ----------
-
-        fx : callable f(x, **fx_args), optional
-            State transition function. If not provided, the default
-            function passed in during construction will be used.
-
-        UT : function(sigmas, Wm, Wc, kwargs_sigma_points), optional
-            Optional function to compute the unscented transform for the sigma
-            points passed. If the points are GenUT, you can pass 3rd and 4th moment through kwargs_sigma_points (see description of sigma points class for details)
-
-    
-
-        **fx_args : keyword arguments
-            optional keyword arguments to be passed into f(x).
         """
 
         if fx is None:
@@ -592,7 +491,9 @@ class Normalized_UKF_additive_noise(UKFBase):
         # calculate sigma points for given mean and covariance for the states
         (self.sigmas_raw_fx, self.Wm_x, 
          self.Wc_x, P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_post, 
-                                                                    self.P_dummy, P_sqrt = P_sqrt, **kwargs_sigma_points)
+                                                                    self.P_dummy, 
+                                                                    P_sqrt = P_sqrt,
+                                                                    **kwargs_sigma_points)
 
         # propagate all the sigma points through fx
         self.sigmas_prop = self.compute_transformed_sigmas(
@@ -854,23 +755,59 @@ class Normalized_UKF_additive_noise(UKFBase):
         
 
 
-class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
-    
+class Normalized_UKF_additive_noise_corr_lim(UKFBase):
+    """
+    NUKF, using the Normalized Unscented Transformation (NUT), with possibilities to have limits on the correlation. IMPORTANT: Additive white noise is assumed!
+    """
     def __init__(self, x0, P0, fx, hx, points_x, Q, R, 
                  w_mean = None, v_mean = None, 
                  corr_post_lim = np.inf, corr_prior_lim = np.inf, 
                  corr_y_lim = np.inf, corr_xy_lim = np.inf, name=None):
-        """
-        Create a Kalman filter. IMPORTANT: Additive white noise is assumed!
-
-        """
         
-        # raise ValueError("Class has not been verified/finished yet")
-        
-        super().__init__(x0, P0, fx, hx, points_x, Q, R, 
+        super().__init__(fx, hx, points_x, Q, R, 
                      w_mean = w_mean, v_mean = v_mean, name = name)
         
-        #whether or not we should check limits for correlation
+        dim_x = x0.shape[0]
+        assert (dim_x, dim_x) == P0.shape #check input
+        assert (P0 == P0.T).all() #symmtrical
+        
+        corr0, std_dev0 = self.correlation_from_covariance(P0)
+        assert (corr0 == corr0.T).all() #check function self.correlation_from_covariance(P0) works as intended
+        
+        #set __init__ values
+        self.x_post = x0
+        self.std_dev_post = np.diag(std_dev0) #(dim_x, dim_x)
+        self.corr_post = corr0
+        self.x_prior = self.x_post.copy()
+        self.std_dev_prior = self.std_dev_post.copy()
+        self.corr_prior = self.corr_post.copy()
+        self._dim_x = dim_x
+        self.P_dummy = np.nan*np.zeros((dim_x, dim_x)) #dummy matrix, sent to functions which calculate P_sqrt
+        
+        #Need initial standard deviation of y. Set it equal to the noise values
+        self.std_dev_y = np.diag(np.sqrt(np.diag(R))) #elementwise standard deviation of the diagonals (R may have values on the off-diagonals)
+
+        #as the noise is additive, dim_x = dim_w, dim_y = dim_v
+        assert self._dim_x == self._dim_w
+        self._dim_y = self._dim_v
+        
+        # create sigma-points
+        self.sigmas_raw_fx = np.zeros((self._dim_x, self._num_sigmas_x))
+        
+        # sigma-points propagated through fx to form prior distribution
+        self.sigmas_prop = np.zeros((self._dim_x, self._num_sigmas_x))
+        
+        # sigma-points based on prior distribution
+        self.sigmas_raw_hx = np.zeros((self._dim_x, self._num_sigmas_x))
+        
+        # sigma-points propagated through measurement equation. Form posterior distribution
+        self.sigmas_meas = np.zeros((self._dim_y, self._num_sigmas_x))
+
+        self.y_res = np.zeros((self._dim_y, 1))           # residual
+        self.y = np.array([[None]*self._dim_y]).T  # measurement
+    
+        
+        #whether or not we should check limits for correlatio
         if corr_post_lim is np.inf:
             self.check_corr_post_lim = False
         else:
@@ -935,9 +872,8 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         elif np.isscalar(Q):
             Q = np.eye(self._dim_w) * Q
         
-
         if UT is None:
-            UT = unscented_transform.unscented_transformation_corr_std_dev_v2
+            UT = unscented_transform.normalized_unscented_transformation_additive_noise
         
         #calculate the square-root of the covariance matrix by using standard deviations and correlation matrix
         corr_sqrt = self.msqrt(self.corr_post)
@@ -946,15 +882,13 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         # calculate sigma points for given mean and covariance for the states
         (self.sigmas_raw_fx, self.Wm_x, 
          self.Wc_x, P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_post, 
-                                                                    self.P_dummy, P_sqrt = P_sqrt, **kwargs_sigma_points)
+                                                                    self.P_dummy, 
+                                                                    P_sqrt = P_sqrt,
+                                                                    **kwargs_sigma_points)
 
         # propagate all the sigma points through fx
         self.sigmas_prop = self.compute_transformed_sigmas(
             self.sigmas_raw_fx, fx, **fx_args)
-
-        """
-        New part: this should perhaps be in a separate function (it is basically the UT)
-        """
         
         self.x_prior, self.corr_prior, self.std_dev_prior = UT(self.sigmas_prop, self.Wm_x, self.Wc_x, Q)
         
@@ -1002,7 +936,7 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
             hx = self.hx
 
         if UT is None:
-            UT = unscented_transform.unscented_transformation_corr_std_dev_v2
+            UT = unscented_transform.normalized_unscented_transformation_additive_noise
 
         if v_mean is None:
             v_mean = self.v_mean
@@ -1019,14 +953,15 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         # recreate sigma points
         (self.sigmas_raw_hx,
          self.Wm_x, self.Wc_x,
-         P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_prior,
-                                                       self.P_dummy, P_sqrt = P_sqrt,
-                                                       **kwargs_sigma_points
-                                                       )
+         P_sqrt) = self.points_fn_x.compute_sigma_points(self.x_prior, 
+                                                         self.P_dummy, 
+                                                         P_sqrt = P_sqrt, 
+                                                         **kwargs_sigma_points
+                                                         )
 
         # send sigma points through measurement equation
-        self.sigmas_meas = self.compute_transformed_sigmas(
-            self.sigmas_raw_hx, hx, **hx_args)
+        self.sigmas_meas = self.compute_transformed_sigmas(self.sigmas_raw_hx, 
+                                                           hx, **hx_args)
 
         # pass the propagated sigmas of the states through the unscented transform to compute the predicted measurement, corr_y and std_dev_y
         self.y_pred, self.corr_y, self.std_dev_y = UT(self.sigmas_meas, self.Wm_x, self.Wc_x, R)
@@ -1035,8 +970,7 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         
         #check if we should add constraints to the correlation term
         if self.check_corr_y_lim:
-            self.corr_y = self.corr_limit(self.corr_y,
-                                              self.corr_y_lim)
+            self.corr_y = self.corr_limit(self.corr_y, self.corr_y_lim)
         
 
         # Innovation term of the UKF
@@ -1044,7 +978,6 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         self.std_dev_y_inv = np.diag([1/sig_y for sig_y in np.diag(self.std_dev_y)])#inverse of diagonal matrix is inverse of each diagonal element - to be multiplied with innovation term
         
         #Obtain the cross_covariance
-        
         sig_x_norm = np.divide(self.sigmas_raw_hx - self.x_prior.reshape(-1,1),
                                np.diag(self.std_dev_prior).reshape(-1,1))
         sig_y_norm = np.divide(self.sigmas_meas - self.y_pred.reshape(-1,1),
@@ -1093,7 +1026,7 @@ class Normalized_UKF_additive_noise_v2(Normalized_UKF_additive_noise):
         # if idx_higher.any():
         #     print("high")
         
-        #correct way, can be speeded up
+        #correct way, can be speeded up by using default numpy functions
         dim_x, dim_y = corr.shape
         if not cross_corr:
             #symmetrical matrix - check only lower triangle and change matrix values two places

@@ -108,8 +108,8 @@ class JulierSigmaPoints(SigmaPoints):
         super().__init__(n, sqrt_method = sqrt_method)
         # print("WARNING: This class has NOT been verified yet")
         # raise ValueError("This class has NOT been verified yet!")
-        if not (kappa == (3-n)):
-            print(f"warning: kappa is not set to kappa = (3-n) = {3-n}, which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
+        if not (kappa == np.max([(3-n), 0])):
+            print(f"warning: kappa is not set to kappa = max([(3-n),0]) = max([{3-n},0]), which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
         self.kappa = kappa
         self.dim_sigma = self.num_sigma_points()
         self.Wm = self.compute_weights()
@@ -222,8 +222,8 @@ class ScaledSigmaPoints(SigmaPoints):
         self.beta = beta
         self.kappa = kappa
         self.lam = self.calculate_lam()
-        if not (kappa == (3-n)):
-            print(f"warning: kappa is not set to kappa = (3-n) = {3-n}, which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
+        if not (kappa == np.max([(3-n), 0])):
+            print(f"warning: kappa is not set to kappa = max([(3-n),0]) = max([{3-n},0]), which minimizes the fourth order mismatch. Proceeding with a value of kappa = {kappa}")
         self.dim_sigma = self.num_sigma_points()
         self.Wm, self.Wc = self.compute_weights()
     

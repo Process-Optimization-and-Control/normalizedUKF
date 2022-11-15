@@ -35,6 +35,20 @@ Q = 3
 RHO = 4
 
 def ode_model_plant(par_cov):
+    """
+    Build the model and possibly also jacobians.
+
+    Parameters
+    ----------
+    par_cov : TYPE np.array((dim_p, dim_p))
+        DESCRIPTION. Covariance of parameters
+
+    Returns
+    -------
+    F : TYPE casadi.casadi.Function
+        DESCRIPTION. Process model to be evaluated
+
+    """
     
     #Make parameters
     
@@ -72,11 +86,12 @@ def ode_model_plant(par_cov):
     omega = cd.SX.sym("omega", 1) # [rpm] pump speed
     u_cv = cd.SX.sym("u_cv", 1) # [%] opening of choke valve
     
-    #Time
-    t = cd.SX.sym("t", 1) # [s,min,h,d,y], time
+    #Integration parameters
+    t_span = cd.SX.sym("t_span", 1)
     
     #Concatenate equation, states, inputs and parameters
-    x_var = cd.vertcat(p1, p2, p3, Q, rho)
+    x_var = cd.vertcat(p1, p3, rho)
+    z_var = cd.vertcat(p2, Q)
     u_var = cd.vertcat(omega, u_cv)
     p_var = cd.vertcat(h_a0, h_a1, h_a2,
                        theta_p1_0, theta_p1_1, theta_p1_2,
@@ -84,7 +99,7 @@ def ode_model_plant(par_cov):
                        theta_rho_0, theta_rho_1,
                        cv
                        )
-    p_aug_var = cd.vertcat(u_var, p_var, t) #input order to the function
+    p_aug_var = cd.vertcat(u_var, p_var, t_span) #input order to the function
     
     #scaling factors
     u_ref = 1
@@ -92,39 +107,32 @@ def ode_model_plant(par_cov):
     pa2bar = 1/1e5
     rho_water = 997 #kg/m3
     
+    #diff_eq
+    p1_dot = theta_p1_1
+    p3_dot = theta_p3_1
+    rho_dot = theta_rho_1
+    diff_eq = cd.vertcat(p1_dot, p3_dot, rho_dot)
+    
     #root finding system (residuals). Define supplementary equations
     H_ref = h_a0 + h_a1*Q + h_a2*(Q**2) # [m]
     H = H_ref*(omega/omega_ref)**2 #affinity law correction
     SG = rho/rho_water #specific gravity
     
     #residuals to be solved
-    res_p1 = theta_p1_0 + theta_p1_1*t + theta_p1_2*(t**2)  - p1 
     res_p2 = p1 + (rho * g * H)*pa2bar - p2
-    res_p3 = theta_p3_0 + theta_p3_1*t + theta_p3_2*(t**2)  - p3 
-    res_q = Q - cv*u_cv*cd.sqrt((p2 - p3)/SG)
-    res_rho = theta_rho_0 + theta_rho_1*t - rho 
+    res_q = cv*u_cv*cd.sqrt((p2 - p3)/SG) - Q
     
-    res_all = cd.vertcat(res_p1, res_p2, res_p3, res_q, res_rho)
+    alg_eq = cd.vertcat(res_p2, res_q)
     
-    res = cd.Function("res", 
-                      [x_var, p_aug_var], 
-                      [cd.vertcat(res_p1, res_p2, res_p3, res_q, res_rho)] #equations/residuals
-                      )
-    # jac_p_func = res.jacobian(p_aug_var)
+    dae = {"x": x_var, "z": z_var, "p": p_aug_var, "ode": diff_eq*t_span, "alg": alg_eq}
+    F = cd.integrator("F", "idas", dae)
     
-    #Form ode dict and integrator
-    # opts = {"abstol": 1e-14,
-    #         "linear_solver": "csparse"
-    #         }
+   
     opts = {}
-    F = cd.rootfinder("F", "newton", res, opts)
-    # jac_p_func = cd.jacobian(res_all, p_aug_var)
-    jac_p_func = cd.jacobian(res_all, p_var)
-    Qk_func = jac_p_func @ par_cov @ jac_p_func.T
-    Qk_lin = cd.Function("Qk_lin", [x_var, p_aug_var], [Qk_func])
-    # jac_p_func = res.jacobian(1)
-    jac_p = cd.Function("jac_p", [x_var, p_aug_var], [jac_p_func])
-    # jac_p = None
+    jac_p_func = None
+    Qk_func = None
+    Qk_lin = None
+    jac_p = None
     S_zz = None
     S_xz = None
     S_xp = None
@@ -133,40 +141,47 @@ def ode_model_plant(par_cov):
     diff_eq = None
     alg = None
     obj_fun = None
+    res = None
     return F,jac_p,S_zz,S_xz,S_xp,S_zp,x_var,z_var,u_var,p_var,diff_eq,alg,obj_fun, res, p_aug_var, Qk_lin
 
-#test
 
-# F,jac_p,S_zz,S_xz,S_xp,S_zp,x_var,z_var,u_var,p_var,diff_eq,alg,obj_fun, res, p_aug_var, Qk_lin = ode_model_plant()
 
-def integrate_ode(F, x0, uk, par_fx, tk):
-    x0 = cd.vertcat(x0)
+def integrate_dae(F, x0, uk, par_fx, t_span):
+    """
+    Solve DAE system
+
+    Parameters
+    ----------
+    F : TYPE casadi.casadi.Function
+        DESCRIPTION. Casadi DAE model of the plant
+    x0 : TYPE np.array(dim_x)
+        DESCRIPTION. Initial points for differential states and initial guess for algebraic states. Indices must match the DAE model.
+    uk : TYPE np.array(dim_u)
+        DESCRIPTION. Control input
+    par_fx : TYPE dict
+        DESCRIPTION. Parameter values
+    t_span : TYPE tuple
+        DESCRIPTION. Integration time
+
+    Returns
+    -------
+    x_return : TYPE np.array(dim_x)
+        DESCRIPTION. Solution of DAE system at t_span[-1]
+
+    """
+    x_in = cd.vertcat([x0[P1], x0[P3], x0[RHO]])
+    z_in = cd.vertcat([x0[P2], x0[Q]])
+    
     pk = list(uk)
     pk.extend(list(par_fx.values())) #combines two lists
-    pk.append(tk) #this is a float
-    xk = F(x0, cd.vcat(pk))
+    pk.append(t_span[1] - t_span[0]) #this is a float
+    xk = F(x0 = x_in, z0 = z_in, p = cd.vcat(pk))
     # xf = Fend["xf"]
     # xf_np = np.array(xf).flatten()
-    # return xf_np
-    return np.array(xk).flatten()
-
-def integrate_ode_parametric_uncertainty(F, x0, uk, par_fx, dim_par):
-    xf_ode = integrate_ode(F, x0[:-dim_par], uk, par_fx)
-    xf = np.hstack((xf_ode, x0[-dim_par:]))
-    return xf
-
-
-# def get_measurement_matrix(dim_x, par):
-#     H = np.eye(dim_x)
-#     H[ETA, ETA] = 0
-#     return H
-
-# def hx(x, par):#, v):
-#     #change this later? For volume, we assume dP measurement. From the venturi flowmeter for the subsea pump, we have an accuracy of 0,065%*span_DP*multiplier_accuracy/sigma_level =0,065/100*320mbar*0,5/2 = 0,052 mbar. 
-#     H = get_measurement_matrix(x.shape[0], par)
-#     y = np.dot(H, x)# + v
-#     # y[-1] = dp_measurement(y[-1], par) #need to add Venturi measurement
-#     return y
+    x_sol = np.array(xk["xf"]).flatten()
+    z_sol = np.array(xk["zf"]).flatten()
+    x_return = np.array([x_sol[0], z_sol[0], x_sol[1], z_sol[1], x_sol[2]])
+    return x_return
 
 def hx_cd():
     
@@ -328,9 +343,24 @@ def get_literature_values(df_reservoir, df_pump_chart):
     "D": 154.051/1e3 #[m], upstream internal pipe diameter
     }
     
-    x0 = get_x0()
-    P0 = np.diag(0.05*x0)
+    
+    x0 = np.array([par_opt_p1[0],
+                      65,
+                      par_opt_p3[0],
+                      100,
+                      par_opt_rho[0]])
+    P0 = np.diag([par_cov_p1[0, 0],
+                  np.square(x0[P2]*0.05),
+                  par_cov_p3[0, 0],
+                  np.square(x0[Q]*0.05),
+                  par_cov_rho[0, 0]])
+    
     Q_nom = np.eye(x0.shape[0])*1e-6
+    Q_nom = np.diag(np.square([.5, #p1, ode
+                               0.1, #p2, algebraic
+                               .5, #p3, ode
+                               0.1, #Q, algebraic
+                               1])) #rho, ode
     std_dev_repeatability, accuracy, drift_rate = get_sensor_data()
     R_nom = np.diag(np.array([std_dev_repeatability["PT"]**2,
                               std_dev_repeatability["PT"]**2,
@@ -360,7 +390,7 @@ def get_sensor_data():
             }
     bar2kpa = 100
     accuracy = {
-        "PT": np.max(sensor_specs["FS"]) * sensor_specs["acc_PT"]*bar2kpa, #[kPa]
+        "PT": np.max(sensor_specs["FS"]) * sensor_specs["acc_PT"], #[bar]
         "dP": sensor_specs["acc_DP"]*sensor_specs["span_DP"], #[mbar]
         "BHP": .01 #[kW] - guessed value
         }
@@ -369,21 +399,13 @@ def get_sensor_data():
     std_dev_repeatability = {key: value/2 for (key, value) in accuracy.items()}
     
     drift_rate = {
-        "PT": sensor_specs["stab_PT"]*np.max(sensor_specs["FS"])*bar2kpa, #[kPa/year]
+        "PT": sensor_specs["stab_PT"]*np.max(sensor_specs["FS"]), #[bar/year]
         "dP": sensor_specs["stab_DP"]*sensor_specs["url_DP"], #[mbar/year]
         "BHP": accuracy["BHP"]*.8 #[kW/year] - guessed value (80% of accuracy)
         }
     
     return std_dev_repeatability, accuracy, drift_rate
 
-def get_x0():
-    x0 = np.array([50, #p1
-                   80, #p2
-                   50, #p3
-                   100, #Q
-                   600 # rho
-                   ])
-    return x0
 
 def get_u0():
     u0 = np.array([3000, #[rpm], omega
@@ -524,25 +546,34 @@ def get_Q_from_linearization(jac_p_fun, x, u, par_nom, par_cov):
 
 
 def semi_random_number(u, chance_of_moving = .98, u_lb = .35, u_hb = .95, rw_step = .01):
+    """
+    Random walk with constraints, and possibility to also stay still
+
+    Parameters
+    ----------
+    u : TYPE float
+        DESCRIPTION. Current value
+    chance_of_moving : TYPE, optional float
+        DESCRIPTION. The default is .98. Describes the chance of generating a new value u_next different from u
+    u_lb : TYPE, optional float
+        DESCRIPTION. The default is .35. Lower boundary for u_next
+    u_hb : TYPE, optional float
+        DESCRIPTION. The default is .95. Higher boundary for u_next
+    rw_step : TYPE, optional float
+        DESCRIPTION. The default is .01. Random walk step size
+
+    Returns
+    -------
+    new_u: TYPE float
+        DESCRIPTION. New value of u
+
+    """
     random_number = np.random.uniform(low = 0., high = 1.)
-    if random_number >= (1-chance_of_moving):
+    if random_number >= chance_of_moving:
         return u
     else:
         new_u = np.clip(u + np.random.normal(loc = 0, scale = rw_step), u_lb, u_hb)
-        # new_u = u + np.random.normal(loc = 0, scale = rw_step)
-        # if new_u < u_lb:
-        #     new_u = u_lb
-        # if new_u > u_hb:
-        #     new_u = u_hb
-        # # new_u = np.random.uniform(low = u_lb, high = u_hb)
         return new_u
-def random_walk_drift(yd, yd_lb, yd_hb, rw_mean = 1e-4, rw_step = 1e-3):
-    new_yd = yd + np.random.normal(loc = rw_mean, scale = rw_step)
-    if new_yd < yd_lb:
-        new_yd = yd_lb
-    if new_yd > yd_hb:
-        new_yd = yd_hb
-    return new_yd
 
 def correlation_from_covariance(covariance):
     v = np.sqrt(np.diag(covariance))
