@@ -14,6 +14,7 @@ import scipy.integrate
 import matplotlib
 # matplotlib.use("qtagg") #shold change backend? Get issues with editing axis on plots
 import matplotlib.pyplot as plt
+
 import pathlib
 import os
 import scipy.linalg
@@ -32,9 +33,12 @@ import sigma_points_classes as spc
 import unscented_transformation as ut
 import utils_falling_body as utils_fb
 
+font = {'size': 18}
+matplotlib.rc('font', **font)
+
 
 #%% For running the sim N times
-N = int(10) #this is how many times to repeat each iteration
+N = int(1) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))

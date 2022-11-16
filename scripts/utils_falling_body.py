@@ -6,21 +6,29 @@ Created on Tue Oct 12 13:47:07 2021
 """
 import numpy as np
 import scipy.stats
-import sklearn.datasets
-#Self-written modules
-import sigma_points_classes as spc
-import unscented_transformation as ut
-import matplotlib.pyplot as plt
-import matplotlib
-
-# font = {'size': 14}
-font = {'size': 18}
-
-matplotlib.rc('font', **font)
 
 
 def ode_model_plant(t, x, w, par):
-    
+    """
+    Model of the system. Gets current state values, returns dx/dt
+
+    Parameters
+    ----------
+    t : TYPE float
+        DESCRIPTION. Time
+    x : TYPE np.array(dim_x,)
+        DESCRIPTION. Current state value
+    w : TYPE np.array(dim_w,)
+        DESCRIPTION. Noise realization
+    par : TYPE dict
+        DESCRIPTION. Parameters
+
+    Returns
+    -------
+    x_dot : TYPE np.array(dim_x,)
+        DESCRIPTION. Derivative of the states
+
+    """
     #Unpack states and parameters
     rho_0 = par["rho_0"]
     g = par["g"]
@@ -34,24 +42,53 @@ def ode_model_plant(t, x, w, par):
     return x_dot
 
 def hx(x, par):
-    
-    # y2_1 = (par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"]
-    # y2_1 = np.max([y2_1, 1e-10])
-    # y2_2 = y2_1**par["exp"]
-    # y2_3 = par["Pb"]*y2_2
-    
-    # y = np.array([np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"])),
-    #               y2_3
-    #               ])
+    """
+    Measurement model
+
+    Parameters
+    ----------
+    x : TYPE np.array(dim_x,)
+        DESCRIPTION. Current state value
+    par : TYPE dict
+        DESCRIPTION. Parameters
+
+    Returns
+    -------
+    y : TYPE np.array(dim_y,)
+        DESCRIPTION. Measurement (without measurement noise)
+
+    """
+   
     y = np.array([np.sqrt(np.square(par["M"]) + np.square(x[0] - par["a"])),
                   par["Pb"]*(((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])**par["exp"])
                   ])
-    # print((par["Tb"] + (x[0] - par["hb"])*par["Lb"])/par["Tb"])
     return y
 
 
 
 def fx_ukf_ode(ode_model, t_span, x0, args_ode = None, args_solver = {}):
+    """
+    Solve x_{k+1}=f(x_{k}) for the provided model
+
+    Parameters
+    ----------
+    ode_model : TYPE function
+        DESCRIPTION. Derivative, dx/dt
+    t_span : TYPE tuple
+        DESCRIPTION. Integration time, (t_start, t_end)
+    x0 : TYPE np.array(dim_x,)
+        DESCRIPTION. Initial value for integrator at t_start.
+    args_ode : TYPE, optional dict
+        DESCRIPTION. The default is None. Optional parameters for the ode_model
+    args_solver : TYPE, optional dict
+        DESCRIPTION. The default is {}. Optional parameters for the ode-solver scipy.integrate.solve_ivp
+
+    Returns
+    -------
+    x_final : TYPE np.array(dim_x,)
+        DESCRIPTION. Integrated state values at t_end
+
+    """
     res = scipy.integrate.solve_ivp(ode_model,
                                     t_span,
                                     x0,
@@ -62,61 +99,31 @@ def fx_ukf_ode(ode_model, t_span, x0, args_ode = None, args_solver = {}):
     return x_final
 
 def get_literature_values():
-    #starting point
-    x0 = np.array([300e3, #[ft]
-                   -20e3, #[ft/s]
-                   1e-3  # [ft3/(lb-s2)] (should be, from UoM-check)
-                   ])
+    """
+    Initial values, parameters etc. Made here for making main script cleaner.
+
+    Returns
+    -------
+    x0 : TYPE np.array(dim_x,)
+        DESCRIPTION. Starting point for UKF (mean value of initial guess)
+    P0 : TYPE np.array((dim_x, dim_x))
+        DESCRIPTION. Initial covariance matrix. Gives uncertainty of starting point. The starting point for the true system is drawn as x_true ~ N(x0,P0)
+    par_mean_fx : TYPE dict
+        DESCRIPTION. Parameters for the process model.
+    par_mean_hx : TYPE dixt
+        DESCRIPTION. Parameters for the measurement model.
+    Q : TYPE np.array((dim_w, dim_w))
+        DESCRIPTION. Process noise covariance matrix
+    R : TYPE np.array((dim_v, dim_v))
+        DESCRIPTION. Measurement noise covariance matrix
+
+    """
     
-    #Initial covariance matrix for the UKF
-    P0 = np.diag([3e8,#[ft^2], altitute, initial covariance matrix for UKF
-                4e6, # [ft^2], horizontal range
-                1e-6 # [?] ballistic coefficient
-                ])
-    #example 14.2 in "Optimal state estimation" by Dan Simon
-    P0 = np.diag([1e6,#[ft^2], altitute, initial covariance matrix for UKF
-                4e6, # [ft^2], horizontal range
-                200 # [?] ballistic coefficient
-                ])
-    
-    P0 = np.diag([1e6,#[ft^2], altitute, initial covariance matrix for UKF
-                4e6, # [ft^2], horizontal range
-                1e-3 # [?] ballistic coefficient
-                ])
-    P0 = np.diag([1e4,#[ft^2], altitute, initial covariance matrix for UKF
-                4e4, # [ft^2], horizontal range
-                1e-3 # [?] ballistic coefficient
-                ])
-    
-    # P0=np.array([[ 9.29030400e+08,  5.39003846e+05, -8.07304597e-01],
-    #               [ 5.39003846e+05,  4.64515200e+02, -8.92873834e-04],
-    #               [-8.07304597e-01, -8.92873834e-04,  3.89725026e-09]])
-    # matrixSize = 3 
-    # A = np.random.rand(matrixSize, matrixSize)
-    # cov0 = np.dot(A, A.transpose())
-    
-    
-    # P0 = sklearn.datasets.make_spd_matrix(3)
-    std_dev0 = np.sqrt(np.diag(P0))
-    std_dev0 = np.sqrt(np.diag(P0))
-    s0_inv = np.diag([1/si for si in std_dev0])
-    corr_0 = s0_inv @ P0 @ s0_inv
-    # s0 = np.sqrt(np.diag(cov0))
-    # del cov0, s0, s0_inv
-    
-    
-    # corr_0 = np.array([[1., .999, .3],
-    #                     [.999, 1., .2],
-    #                     [.3, .2, 1.]])
-    # std_dev0 = np.sqrt(np.array([5e6, 5e-3, 1e-10]))
-    
-    
-    #Nominal parameter values
+    #Nominal parameter values (values are somewhat similar to example 13.2 in Dan Simon's book Optimal State Estimation)
     par_mean_fx = {"rho_0": 2., # [lb-sec^2/ft4]
                 "k": 20e3, # [ft]
                 "g": 32.2 # [ft/s2]
                 }
-    
     
     #Note: for barometric parameters in the measurement equation, see https://en.wikipedia.org/wiki/Barometric_formula for the barometric tables. Chosen 71 0000 m as the reference level (everything with "b" afterwards)
     par_mean_hx = {
@@ -132,38 +139,9 @@ def get_literature_values():
         }
     par_mean_hx["exp"] = -par_mean_hx["g0"]*par_mean_hx["Mw"]/(par_mean_hx["R"]*par_mean_hx["Lb"]) # [-] exponent in the barometric equation
     
-    
-
-    #Kalman filter values in the description
-    # Q = np.diag([0., 0., 0.]) #as in Dan Simon's exercise text
-    #Can try different Q-values
-    # Q = np.diag([1e3, 1e3, 1e-8]) 
-    # Q = np.diag([1e3, 1e3, 1e-8]) #used 
-    # Q = np.diag([1e-8, 1e-8, 1e-8]) 
-    # Q = np.eye(3)*1e-6
-    Q = np.diag([1e-4, 1e-3, 0])
-    Q = np.diag([1e3, 1e3, 1e-6])
-    # Q = np.diag([1e2, 1e2, 1e-7])
-    # Q = np.eye(3)*0.
-    
-    #Measurement noise
-    R = np.diag([10e3, #[ft^2]
-                 5e1]) #[Pa**2]
-    
     #convert to SI units
     kg_per_lbs = 0.45359237
     m_per_ft = 0.3048
-    
-    #and make scaling worse
-    # bar_per_pa = 1e-5
-    
-    x0[0] *= m_per_ft
-    x0[1] *= m_per_ft
-    x0[2] *= (m_per_ft**3)/kg_per_lbs
-    
-    std_dev0[0] *= (m_per_ft)
-    std_dev0[1] *= (m_per_ft)
-    std_dev0[2] *= ((m_per_ft**3)/kg_per_lbs)
     
     par_mean_fx["rho_0"] *=kg_per_lbs/(m_per_ft**4)
     par_mean_fx["k"] *= m_per_ft
@@ -171,27 +149,40 @@ def get_literature_values():
     par_mean_hx["M"] *= m_per_ft
     par_mean_hx["a"] *= m_per_ft
     
-    # par_mean_hx["Pb"] *= bar_per_pa
-    
-    R[0,0] *= m_per_ft**2
-    # R[1,1] *= bar_per_pa**2
-    Q[0,0] *= m_per_ft**2 
-    Q[1,1] *= m_per_ft**2 
-    Q[2,2] *= ((m_per_ft**3)/kg_per_lbs)**2 
-    
+    #Initial state and uncertainty
     x0 = np.array([91e3, -6.1e3, 6.24e-5])
-    std_dev0 = np.diag(std_dev0)
     std_dev0 = np.diag([1e4, 1e3, 1e-5])
+    corr_0 = np.eye(x0.shape[0])
     P0 = std_dev0 @ corr_0 @ std_dev0
     P0 = .5*(P0 + P0.T)
     
-    #values which look nicer in SI-units
+    #Process and measurement noise
     Q = np.diag([1e2, 1e2, 1e-8])
-    R[0,0]=1e3
+    R = np.diag([1e3, 50])
     
     return x0, P0, par_mean_fx, par_mean_hx, Q, R
 
 def compute_performance_index_valappil(x_kf, x_ol, x_true, RMSE = True):
+    """
+    Compute error in state estimates. Either root mean square (RMSE) or the index by Valappil, which is RMSE(state estimate)/RMSE(open loop simulation). Valappil's cost function says how much better the estimator is compared to a simple model prediction.
+
+    Parameters
+    ----------
+    x_kf : TYPE np.array((dim_x, dim_t))
+        DESCRIPTION. State estimates
+    x_ol : TYPE np.array((dim_x, dim_t))
+        DESCRIPTION. Open loop/model prediction
+    x_true : TYPE np.array((dim_x, dim_t))
+        DESCRIPTION. True state values
+    RMSE : TYPE, optional bool
+        DESCRIPTION. The default is True. RMSE if True, if False Valappil's cost function is returned
+
+    Returns
+    -------
+    TYPE np.array(dim_x,)
+        DESCRIPTION. Value of cost function for each state
+
+    """
     J_RMSE = np.linalg.norm(x_kf - x_true, axis = 1, ord = 2)
     if RMSE:
         return J_RMSE
