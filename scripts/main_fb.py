@@ -30,7 +30,6 @@ from myFilter import UKF
 
 #Self-written modules
 import sigma_points_classes as spc
-import unscented_transformation as ut
 import utils_falling_body as utils_fb
 
 font = {'size': 18}
@@ -38,7 +37,7 @@ matplotlib.rc('font', **font)
 
 
 #%% For running the sim N times
-N = int(1) #this is how many times to repeat each iteration
+N = int(100) #this is how many times to repeat each iteration
 dim_x = 3
 cost_func = np.zeros((dim_x, N))
 cost_func_norm = np.zeros((dim_x, N))
@@ -59,10 +58,7 @@ std_dev_x_prior_trajectories = [[] for i in range(N)]
 std_dev_y_trajectories = [[] for i in range(N)]
 
 Ni = 0
-# rand_seed = 1234
-# rand_seed = 1276
 rand_seed = 6969
-# rand_seed += 269
 rand_seed_div = [7695, 7278] #list of simulations which diverge
 # rand_seed = rand_seed_div[1]
 
@@ -328,7 +324,7 @@ while Ni < N:
         
         crashed_sim.append(rand_seed)
         rand_seed += 1
-        raise e
+        # raise e
         continue
 
 print(f"# crashed sim: {len(crashed_sim)}\n",
