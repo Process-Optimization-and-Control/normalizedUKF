@@ -137,7 +137,6 @@ while Ni < N:
         # args_ode_solver = dict(atol = 1e-13, rtol = 1e-10)
         
         #%% Def standard UKF
-        # points = spc.JulierSigmaPoints(dim_x,kappa = 3-dim_x, sqrt_method = sqrt_fn)
         points = spc.ScaledSigmaPoints(dim_x,sqrt_method = sqrt_fn)
         fx_ukf = lambda x: utils_fb.fx_ukf_ode(utils_fb.ode_model_plant, 
                                                      t_span, 

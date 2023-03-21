@@ -302,7 +302,7 @@ class UKF_additive_noise(UKFBase):
             Q = np.eye(self._dim_x) * Q
 
         if UT is None:
-            UT = unscented_transform.unscented_transformation_gut
+            UT = unscented_transform.unscented_transformation_std
 
         # calculate sigma points for given mean and covariance for the states
         self.sigmas_raw_fx, self.Wm_x, self.Wc_x, P_sqrt = self.points_fn_x.compute_sigma_points(
@@ -359,7 +359,7 @@ class UKF_additive_noise(UKFBase):
             hx = self.hx
 
         if UT is None:
-            UT = unscented_transform.unscented_transformation_gut
+            UT = unscented_transform.unscented_transformation_std
 
         if v_mean is None:
             v_mean = self.v_mean

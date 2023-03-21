@@ -20,7 +20,7 @@ import numpy as np
 
 
 
-def unscented_transformation_gut(sigmas, wm, wc, symmetrization = True):
+def unscented_transformation_std(sigmas, wm, wc, symmetrization = True):
     """
     Calculates mean and covariance of sigma points by the unscented transform.
 
@@ -64,56 +64,6 @@ def unscented_transformation_gut(sigmas, wm, wc, symmetrization = True):
     
     return mean, Py
 
-def unscented_transformation_corr_std_dev(sigmas, wm, wc, std_dev, symmetrization = True):
-    """
-    NB: Not used in the paper!
-    
-    Calculates mean and "correlation" of sigma points by the unscented transform. This is not the true correlation, as we use a "guess" for the standard deviation (we use e.g. the prior standard deviation of x when we want to calculate the posterior correlation. The true posterior correlation must use the posterior standard deviation). The update of standard deviation/correlation is handled outside this function 
-
-    Parameters
-    ----------
-    sigmas : TYPE np.ndarray(n, dim_sigma)
-        DESCRIPTION. Array of sigma points. Each column contains a sigma point
-    wm : TYPE np.array(dim_sigma,)
-        DESCRIPTION. Weights for the mean calculation of each sigma point.
-    wc : TYPE np.array(dim_sigma,)
-        DESCRIPTION. Weights for the covariance calculation of each sigma point.
-    std_dev : TYPE np.array(n,)
-        DESCRIPTION. A priori/estimated standard deviation of the covariance 
-    symmetrization : TYPE bool, optional
-        DESCRIPTION. Default is true. Symmetrize covariance/correlation matrix afterwards with corr_y = .5*(corr_y+corr_y.T)
-        
-
-    Returns
-    -------
-    mean : TYPE np.array(dim_y,)
-        DESCRIPTION. Mean value of Y=f(X), X is a random variable (RV) 
-    corr_y : TYPE np.array(dim_y,dim_y)
-        DESCRIPTION. Estimated correlation matrix, corr(Y) where Y=f(X)
-
-    """
-    try:
-        (n, dim_sigma) = sigmas.shape
-    except ValueError: #sigmas is 1D
-        sigmas = np.atleast_2d(sigmas)
-        (n, dim_sigma) = sigmas.shape 
-        assert dim_sigma == wm.shape[0], "Dimensions are wrong"
-    
-    mean = sigmas @ wm
-    
-    #will only work with residuals between sigmas and mean, so "recalculate" sigmas (it is a new variable - but save memory cost by calling it the same as sigmas)
-    sigmas = sigmas - mean.reshape(-1, 1)
-    
-    #normalize ==> we calculate correlations and not covariance
-    sigmas_norm = np.divide(sigmas, std_dev.reshape(-1,1))
-    # corr_y = sum([wc_i*(np.outer(sig_i, sig_i)) for wc_i, sig_i in zip(wc, sigmas_norm.T)])
-    
-    corr_y = (wc*sigmas_norm) @ sigmas_norm.T
-    
-    
-    if symmetrization:
-        corr_y = .5*(corr_y + corr_y.T)
-    return mean, corr_y
 
 def normalized_unscented_transformation_additive_noise(sigmas, wm, wc, noise_mat = None, symmetrization = True):
     """
